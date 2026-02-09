@@ -141,6 +141,55 @@ def update_user(user_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+    @jwt_required()
+@users_bp.route('/<int:user_id>', methods=['DELETE'])
+def deactivate_user(user_id):
+    """Deactivate user"""
+    try:
+        verify_jwt_in_request()
+        current_user = User.query.get(get_jwt_identity())
+
+        if current_user.role != UserRole.ADMIN:
+            return jsonify({'error': 'Admin access required'}), 403
+
+        user = User.query.get_or_404(user_id)
+
+        if user.id == current_user.id:
+            return jsonify({'error': 'Cannot deactivate yourself'}), 400
+
+        user.is_active = False
+        user.updated_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({'message': 'User deactivated'}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@jwt_required()
+@users_bp.route('/<int:user_id>/activate', methods=['POST'])
+def activate_user(user_id):
+    """Activate user"""
+    try:
+        verify_jwt_in_request()
+        current_user = User.query.get(get_jwt_identity())
+
+        if current_user.role != UserRole.ADMIN:
+            return jsonify({'error': 'Admin access required'}), 403
+
+        user = User.query.get_or_404(user_id)
+        user.is_active = True
+        user.updated_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({'message': 'User activated'}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 
 
 
