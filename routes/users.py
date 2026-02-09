@@ -189,6 +189,51 @@ def activate_user(user_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+    @jwt_required()
+@users_bp.route('/<int:user_id>/events', methods=['GET'])
+def get_user_events(user_id):
+    """Get events created by a user"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 12, type=int)
+
+        pagination = Event.query.filter_by(organizer_id=user_id)\
+            .order_by(Event.created_at.desc())\
+            .paginate(page=page, per_page=per_page, error_out=False)
+
+        return jsonify({
+            'events': [e.to_dict() for e in pagination.items],
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'current_page': page
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@jwt_required()
+@users_bp.route('/<int:user_id>/tickets', methods=['GET'])
+def get_user_tickets(user_id):
+    """Get tickets purchased by a user"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+
+        pagination = Ticket.query.filter_by(user_id=user_id)\
+            .order_by(Ticket.created_at.desc())\
+            .paginate(page=page, per_page=per_page, error_out=False)
+
+        return jsonify({
+            'tickets': [t.to_dict() for t in pagination.items],
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'current_page': page
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 
 
