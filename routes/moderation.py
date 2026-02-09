@@ -171,6 +171,49 @@ def reject_event(event_id):
         db.session.remove()
         logger.exception("Error rejecting event")
         return jsonify({'error': str(e)}), 500
+    @jwt_required()
+@moderation_bp.route('/event/<int:event_id>/request-changes', methods=['POST'])
+def request_event_changes(event_id):
+    """Request changes to an event"""
+    try:
+        verify_jwt_in_request()
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+
+        if user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
+            return jsonify({'error': 'Moderator access required'}), 403
+
+        event = Event.query.get_or_404(event_id)
+
+        if event.status not in [EventStatus.DRAFT, EventStatus.PENDING]:
+            return jsonify({'error': 'Event is not pending moderation'}), 400
+
+        data = request.get_json(silent=True) or {}
+        feedback = data.get('feedback', '').strip()
+
+        if not feedback:
+            return jsonify({'error': 'Feedback is required'}), 400
+
+        event.status = EventStatus.DRAFT
+        event.moderation_notes = feedback
+        event.moderated_at = datetime.utcnow()
+        event.moderated_by = user_id
+
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Change request sent to organizer',
+            'feedback': feedback
+        }), 200
+
+    except ExpiredSignatureError:
+        return jsonify({'error': 'Token expired'}), 401
+    except Exception as e:
+        db.session.rollback()
+        db.session.remove()
+        logger.exception("Error requesting event changes")
+        return jsonify({'error': str(e)}), 500
+
 
 
 
