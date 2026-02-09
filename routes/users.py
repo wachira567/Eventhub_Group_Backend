@@ -104,6 +104,44 @@ def get_user(user_id):
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+    @jwt_required()
+@users_bp.route('/<int:user_id>', methods=['PUT'])
+def update_user(user_id):
+    """Update user"""
+    try:
+        verify_jwt_in_request()
+        current_user = User.query.get(get_jwt_identity())
+        user = User.query.get_or_404(user_id)
+
+        if current_user.role != UserRole.ADMIN and current_user.id != user_id:
+            return jsonify({'error': 'Permission denied'}), 403
+
+        data = request.get_json()
+
+        if 'name' in data and data['name'].strip():
+            user.name = data['name'].strip()
+
+        if 'phone' in data:
+            user.phone = data['phone'].strip() if data['phone'] else None
+
+        if current_user.role == UserRole.ADMIN:
+            if 'is_active' in data:
+                user.is_active = data['is_active']
+            if 'is_verified' in data:
+                user.is_verified = data['is_verified']
+            if 'role' in data:
+                user.role = UserRole(data['role'])
+
+        user.updated_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({'message': 'User updated', 'user': user.to_dict()}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 
 
 
