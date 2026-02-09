@@ -213,6 +213,41 @@ def request_event_changes(event_id):
         db.session.remove()
         logger.exception("Error requesting event changes")
         return jsonify({'error': str(e)}), 500
+    @jwt_required()
+@moderation_bp.route('/stats', methods=['GET'])
+def get_moderation_stats():
+    """Get moderation statistics"""
+    try:
+        verify_jwt_in_request()
+        user = User.query.get(get_jwt_identity())
+
+        if user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
+            return jsonify({'error': 'Moderator access required'}), 403
+
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0)
+
+        stats = {
+            'pending': Event.query.filter_by(is_published=False).count(),
+            'approved_today': Event.query.filter(
+                Event.status == EventStatus.APPROVED,
+                Event.moderated_at >= today
+            ).count(),
+            'rejected_today': Event.query.filter(
+                Event.status == EventStatus.REJECTED,
+                Event.moderated_at >= today
+            ).count(),
+            'total_approved': Event.query.filter_by(status=EventStatus.APPROVED).count(),
+            'total_rejected': Event.query.filter_by(status=EventStatus.REJECTED).count()
+        }
+
+        return jsonify({'stats': stats}), 200
+
+    except ExpiredSignatureError:
+        return jsonify({'error': 'Token expired'}), 401
+    except Exception as e:
+        logger.exception("Error fetching moderation stats")
+        return jsonify({'error': str(e)}), 500
+
 
 
 
