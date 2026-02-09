@@ -1,4 +1,4 @@
-# [Commits 1–3 code remains unchanged]
+# [Commits 1–4 code remains unchanged]
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import (
     create_access_token, create_refresh_token,
@@ -76,9 +76,7 @@ def register():
 
     return jsonify({"message": "Account created. Please verify your email."}), 201
 
-# --------------------------
-# Verify Email
-# --------------------------
+# Verify email
 @auth_bp.route("/verify-email", methods=["POST"])
 def verify_email():
     token = request.json.get("token")
@@ -95,3 +93,35 @@ def verify_email():
     db.session.commit()
 
     return jsonify({"message": "Email verified successfully"}), 200
+
+# --------------------------
+# Login
+# --------------------------
+@auth_bp.route("/login", methods=["POST"])
+def login():
+    data = request.json
+    email = data.get("email")
+    password = data.get("password")
+
+    user = User.query.filter_by(email=email).first()
+    if not user or not check_password_hash(user.password, password):
+        return jsonify({"error": "Invalid email or password"}), 401
+
+    if not user.is_verified:
+        send_verification_email(user)
+        return jsonify({"error": "Email not verified. Verification link resent."}), 403
+
+    access = create_access_token(identity=user.id)
+    refresh = create_refresh_token(identity=user.id)
+
+    return jsonify({"access": access, "refresh": refresh}), 200
+
+# --------------------------
+# Refresh Token
+# --------------------------
+@auth_bp.route("/refresh", methods=["POST"])
+@jwt_required(refresh=True)
+def refresh_token():
+    user_id = get_jwt_identity()
+    access = create_access_token(identity=user_id)
+    return jsonify({"access": access}), 200
