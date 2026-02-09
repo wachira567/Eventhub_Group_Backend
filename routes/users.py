@@ -87,5 +87,23 @@ def get_recent_users():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+    @jwt_required()
+@users_bp.route('/<int:user_id>', methods=['GET'])
+def get_user(user_id):
+    """Get user details"""
+    try:
+        verify_jwt_in_request()
+        current_user = User.query.get(get_jwt_identity())
+        user = User.query.get_or_404(user_id)
+
+        if current_user.role != UserRole.ADMIN and current_user.id != user_id:
+            return jsonify({'error': 'Permission denied'}), 403
+
+        return jsonify({'user': user.to_dict()}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 
