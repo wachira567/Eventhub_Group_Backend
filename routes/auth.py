@@ -1,4 +1,4 @@
-# [commit 1 + 2 code above remains unchanged]
+# [Commits 1–3 code remains unchanged]
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import (
     create_access_token, create_refresh_token,
@@ -13,7 +13,7 @@ from extensions import db
 
 auth_bp = Blueprint("auth", __name__)
 
-# Email token utilities (from commit 2)
+# Email token utilities
 def generate_verification_token(email):
     serializer = URLSafeTimedSerializer(current_app.config["SECRET_KEY"])
     return serializer.dumps(email, salt="email-confirmation-salt")
@@ -45,9 +45,7 @@ def send_password_reset_email(user):
              f"<a href='{reset_url}'>Reset Password</a>"
     )
 
-# --------------------------
-# Register User
-# --------------------------
+# Register endpoint
 @auth_bp.route("/register", methods=["POST"])
 def register():
     data = request.json
@@ -61,7 +59,6 @@ def register():
 
     existing = User.query.filter_by(email=email).first()
 
-    # If user exists but not verified -> resend verification
     if existing and not existing.is_verified:
         send_verification_email(existing)
         return jsonify({"message": "Account exists but is not verified. Verification email resent."}), 200
@@ -78,3 +75,23 @@ def register():
     send_verification_email(new_user)
 
     return jsonify({"message": "Account created. Please verify your email."}), 201
+
+# --------------------------
+# Verify Email
+# --------------------------
+@auth_bp.route("/verify-email", methods=["POST"])
+def verify_email():
+    token = request.json.get("token")
+    email = confirm_verification_token(token)
+
+    if not email:
+        return jsonify({"error": "Invalid or expired token"}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    user.is_verified = True
+    db.session.commit()
+
+    return jsonify({"message": "Email verified successfully"}), 200
