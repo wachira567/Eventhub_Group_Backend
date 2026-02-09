@@ -1,4 +1,4 @@
-# [Commits 1–4 code remains unchanged]
+# [Commits 1–5 code remains unchanged]
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import (
     create_access_token, create_refresh_token,
@@ -94,9 +94,7 @@ def verify_email():
 
     return jsonify({"message": "Email verified successfully"}), 200
 
-# --------------------------
 # Login
-# --------------------------
 @auth_bp.route("/login", methods=["POST"])
 def login():
     data = request.json
@@ -116,12 +114,49 @@ def login():
 
     return jsonify({"access": access, "refresh": refresh}), 200
 
-# --------------------------
-# Refresh Token
-# --------------------------
+# Refresh token
 @auth_bp.route("/refresh", methods=["POST"])
 @jwt_required(refresh=True)
 def refresh_token():
     user_id = get_jwt_identity()
     access = create_access_token(identity=user_id)
     return jsonify({"access": access}), 200
+
+# --------------------------
+# User profile endpoints
+# --------------------------
+@auth_bp.route("/me", methods=["GET"])
+@jwt_required()
+def me():
+    user = User.query.get(get_jwt_identity())
+    return jsonify(user.to_dict()), 200
+
+@auth_bp.route("/profile", methods=["PUT"])
+@jwt_required()
+def update_profile():
+    user = User.query.get(get_jwt_identity())
+    data = request.json
+
+    user.name = data.get("name", user.name)
+    user.phone = data.get("phone", user.phone)
+    db.session.commit()
+
+    return jsonify({"message": "Profile updated"}), 200
+
+@auth_bp.route("/organizer-profile", methods=["PUT"])
+@jwt_required()
+def organizer_profile():
+    user = User.query.get(get_jwt_identity())
+    data = request.json
+
+    profile = OrganizerProfile.query.filter_by(user_id=user.id).first()
+    if not profile:
+        profile = OrganizerProfile(user_id=user.id)
+
+    profile.organization_name = data.get("organization_name", profile.organization_name)
+    profile.description = data.get("description", profile.description)
+
+    db.session.add(profile)
+    db.session.commit()
+
+    return jsonify({"message": "Organizer profile updated"}), 200
