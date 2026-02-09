@@ -48,3 +48,27 @@ def get_pending_events():
     except Exception as e:
         logger.exception("Error fetching pending events")
         return jsonify({'error': str(e)}), 500
+    @jwt_required()
+@moderation_bp.route('/event/<int:event_id>', methods=['GET'])
+def get_event_for_moderation(event_id):
+    """Get event details for moderation"""
+    try:
+        verify_jwt_in_request()
+        user = User.query.get(get_jwt_identity())
+
+        if user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
+            return jsonify({'error': 'Moderator access required'}), 403
+
+        event = Event.query.get_or_404(event_id)
+
+        if event.status not in [EventStatus.DRAFT, EventStatus.PENDING]:
+            return jsonify({'error': 'Event is not pending moderation'}), 400
+
+        return jsonify({'event': event.to_dict()}), 200
+
+    except ExpiredSignatureError:
+        return jsonify({'error': 'Token expired'}), 401
+    except Exception as e:
+        logger.exception("Error fetching event for moderation")
+        return jsonify({'error': str(e)}), 500
+
