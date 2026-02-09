@@ -124,3 +124,17 @@ def send_ticket_with_pdf(user_email, user_name, event_title, ticket_number, quan
     except Exception as e:
         print(f"Email error: {e}")
         return False
+
+
+def send_guest_ticket_confirmation(guest_email, guest_name, event_title, ticket_number, quantity, total_price, pdf_buffer):
+    """Send ticket confirmation to guest user"""
+    return send_ticket_with_pdf(
+        user_email=guest_email,
+        user_name=guest_name or 'Guest',
+        event_title=event_title,
+        ticket_number=ticket_number,
+        quantity=quantity,
+        total_price=total_price,
+        pdf_buffer=pdf_buffer,
+        filename=f"EventHub_Ticket_{ticket_number}.pdf"
+    )
