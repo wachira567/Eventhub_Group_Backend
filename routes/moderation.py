@@ -120,5 +120,57 @@ def approve_event(event_id):
         db.session.remove()
         logger.exception("Error approving event")
         return jsonify({'error': str(e)}), 500
+    @jwt_required()
+@moderation_bp.route('/event/<int:event_id>/reject', methods=['POST'])
+def reject_event(event_id):
+    """Reject an event"""
+    try:
+        verify_jwt_in_request()
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+
+        if user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
+            return jsonify({'error': 'Moderator access required'}), 403
+
+        event = Event.query.get_or_404(event_id)
+
+        if event.status == EventStatus.REJECTED:
+            return jsonify({'error': 'Event is already rejected'}), 400
+
+        data = request.get_json(silent=True) or {}
+        reason = data.get('reason', '').strip()
+
+        if not reason:
+            return jsonify({'error': 'Rejection reason is required'}), 400
+
+        event.status = EventStatus.REJECTED
+        event.moderated_at = datetime.utcnow()
+        event.moderated_by = user_id
+        event.moderation_notes = reason
+
+        db.session.commit()
+
+        organizer = User.query.get(event.organizer_id)
+        if organizer:
+            send_event_rejection_email(
+                organizer.email,
+                organizer.name,
+                event.title,
+                reason
+            )
+
+        return jsonify({
+            'message': 'Event rejected',
+            'event': event.to_dict()
+        }), 200
+
+    except ExpiredSignatureError:
+        return jsonify({'error': 'Token expired'}), 401
+    except Exception as e:
+        db.session.rollback()
+        db.session.remove()
+        logger.exception("Error rejecting event")
+        return jsonify({'error': str(e)}), 500
+
 
 
