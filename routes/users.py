@@ -68,4 +68,24 @@ def get_users():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+    @jwt_required()
+@users_bp.route('/recent', methods=['GET'])
+def get_recent_users():
+    """Get recently registered users (admin only)"""
+    try:
+        verify_jwt_in_request()
+        current_user = User.query.get(get_jwt_identity())
+
+        if current_user.role != UserRole.ADMIN:
+            return jsonify({'error': 'Admin access required'}), 403
+
+        limit = request.args.get('limit', 10, type=int)
+        users = User.query.order_by(User.created_at.desc()).limit(limit).all()
+
+        return jsonify({'users': [u.to_dict() for u in users]}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
