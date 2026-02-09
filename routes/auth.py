@@ -1,3 +1,4 @@
+# [commit 1 + 2 code above remains unchanged]
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import (
     create_access_token, create_refresh_token,
@@ -12,9 +13,7 @@ from extensions import db
 
 auth_bp = Blueprint("auth", __name__)
 
-# --------------------------
-# Email Token Utilities
-# --------------------------
+# Email token utilities (from commit 2)
 def generate_verification_token(email):
     serializer = URLSafeTimedSerializer(current_app.config["SECRET_KEY"])
     return serializer.dumps(email, salt="email-confirmation-salt")
@@ -45,3 +44,37 @@ def send_password_reset_email(user):
         html=f"<p>Hello {user.name}, click the link to reset your password:</p>"
              f"<a href='{reset_url}'>Reset Password</a>"
     )
+
+# --------------------------
+# Register User
+# --------------------------
+@auth_bp.route("/register", methods=["POST"])
+def register():
+    data = request.json
+    name = data.get("name")
+    email = data.get("email")
+    phone = data.get("phone")
+    password = data.get("password")
+
+    if not all([name, email, phone, password]):
+        return jsonify({"error": "All fields are required"}), 400
+
+    existing = User.query.filter_by(email=email).first()
+
+    # If user exists but not verified -> resend verification
+    if existing and not existing.is_verified:
+        send_verification_email(existing)
+        return jsonify({"message": "Account exists but is not verified. Verification email resent."}), 200
+
+    if existing:
+        return jsonify({"error": "Email already in use"}), 409
+
+    hashed_password = generate_password_hash(password)
+    new_user = User(name=name, email=email, phone=phone, password=hashed_password)
+
+    db.session.add(new_user)
+    db.session.commit()
+
+    send_verification_email(new_user)
+
+    return jsonify({"message": "Account created. Please verify your email."}), 201
