@@ -233,6 +233,32 @@ def get_user_tickets(user_id):
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    @jwt_required()
+@users_bp.route('/stats', methods=['GET'])
+def get_user_stats():
+    """Get user statistics (admin only)"""
+    try:
+        verify_jwt_in_request()
+        current_user = User.query.get(get_jwt_identity())
+
+        if current_user.role != UserRole.ADMIN:
+            return jsonify({'error': 'Admin access required'}), 403
+
+        stats = {
+            'total_users': User.query.count(),
+            'active_users': User.query.filter_by(is_active=True).count(),
+            'verified_users': User.query.filter_by(is_verified=True).count(),
+            'organizers': User.query.filter_by(role=UserRole.ORGANIZER).count(),
+            'attendees': User.query.filter_by(role=UserRole.ATTENDEE).count(),
+            'admins': User.query.filter_by(role=UserRole.ADMIN).count(),
+            'moderators': User.query.filter_by(role=UserRole.MODERATOR).count()
+        }
+
+        return jsonify({'stats': stats}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 
 
