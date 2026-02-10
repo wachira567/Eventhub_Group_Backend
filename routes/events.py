@@ -93,3 +93,57 @@ def get_payment_status(identifier):
         ), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+
+@mpesa_bp.route('/query/<int:transaction_id>', methods=['POST'])
+def query_payment(transaction_id):
+    try:
+        transaction = MpesaTransaction.query.get_or_404(transaction_id)
+        if not transaction.checkout_request_id:
+            return jsonify({'error': 'No checkout request ID'}), 400
+        
+        response = mpesa_service.query_stk_status(
+            checkout_request_id=transaction.checkout_request_id
+        )
+        
+        if response.get('ResultCode') == 0:
+            transaction.status = 'completed'
+            transaction.mpesa_receipt = response.get('Result', {}).get('MpesaReceiptNumber')
+            db.session.commit()
+            return jsonify({
+                'status': 'completed',
+                'mpesa_receipt': transaction.mpesa_receipt
+            }), 200
+        else:
+            transaction.status = 'failed'
+            transaction.result_desc = response.get('ResultDesc')
+            db.session.commit()
+            return jsonify({
+                'status': 'failed',
+                'error': response.get('ResultDesc')
+            }), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@mpesa_bp.route('/transactions', methods=['GET'])
+def get_transactions():
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        status = request.args.get('status', '').strip()
+        
+        query = MpesaTransaction.query
+        if status:
+            query = query.filter_by(status=status)
+        
+        pagination = query.order_by(MpesaTransaction.created_at.desc())\
+            .paginate(page=page, per_page=per_page, error_out=False)
+        
+        return jsonify({
+            'transactions': [t.to_dict() for t in pagination.items],
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'current_page': page
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
