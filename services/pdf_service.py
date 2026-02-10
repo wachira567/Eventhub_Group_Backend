@@ -156,3 +156,107 @@ def generate_ticket_pdf_buffer(ticket, event, ticket_type, user=None):
         HRFlowable(width="100%", thickness=1, color=colors.HexColor("#E5E5E5"))
     )
     elements.append(Spacer(1, 20))
+    # Event Details
+    elements.append(Paragraph("EVENT DETAILS", label_style))
+    elements.append(Spacer(1, 10))
+
+    event_date = (
+        event.start_date.strftime("%A, %B %d, %Y") if event.start_date else "TBD"
+    )
+    event_time = event.start_date.strftime("%I:%M %p") if event.start_date else "TBD"
+
+    event_details_data = [
+        [
+            Paragraph("DATE", label_style),
+            Paragraph("TIME", label_style),
+            Paragraph("LOCATION", label_style),
+        ],
+        [
+            Paragraph(event_date, value_style),
+            Paragraph(event_time, value_style),
+            Paragraph(event.venue or event.address or "TBD", value_style),
+        ],
+    ]
+
+    event_details_table = Table(
+        event_details_data, colWidths=[2.5 * inch, 2 * inch, 2.5 * inch]
+    )
+    event_details_table.setStyle(
+        TableStyle(
+            [
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+
+    elements.append(event_details_table)
+    elements.append(Spacer(1, 20))
+
+    # Attendee Information
+    elements.append(Paragraph("ATTENDEE", label_style))
+    elements.append(Spacer(1, 5))
+
+    if ticket.is_guest:
+        attendee_name = ticket.guest_name or "Guest"
+        attendee_email = ticket.guest_email or "N/A"
+    else:
+        attendee_name = user.name if user else "Unknown"
+        attendee_email = user.email if user else "N/A"
+
+    attendee_data = [
+        [Paragraph("NAME", label_style), Paragraph("EMAIL", label_style)],
+        [Paragraph(attendee_name, value_style), Paragraph(attendee_email, value_style)],
+    ]
+
+    attendee_table = Table(attendee_data, colWidths=[3 * inch, 4 * inch])
+    attendee_table.setStyle(
+        TableStyle(
+            [
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+
+    elements.append(attendee_table)
+    elements.append(Spacer(1, 20))
+
+    # Purchase Details
+    elements.append(Paragraph("PURCHASE DETAILS", label_style))
+    elements.append(Spacer(1, 10))
+
+    purchase_date = (
+        ticket.purchased_at.strftime("%B %d, %Y at %I:%M %p")
+        if ticket.purchased_at
+        else "N/A"
+    )
+
+    purchase_data = [
+        [
+            Paragraph("QUANTITY", label_style),
+            Paragraph("PRICE PER TICKET", label_style),
+            Paragraph("TOTAL PAID", label_style),
+        ],
+        [
+            Paragraph(str(ticket.quantity), value_style),
+            Paragraph(f"KES {float(ticket_type.price):,.2f}", value_style),
+            Paragraph(f"KES {float(ticket.total_price):,.2f}", value_style),
+        ],
+    ]
+
+    purchase_table = Table(purchase_data, colWidths=[2 * inch, 2.5 * inch, 2.5 * inch])
+    purchase_table.setStyle(
+        TableStyle(
+            [
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+
+    elements.append(purchase_table)
+    elements.append(Spacer(1, 5))
+    elements.append(Paragraph(f"Purchased on: {purchase_date}", label_style))
+    elements.append(Spacer(1, 30))
+
