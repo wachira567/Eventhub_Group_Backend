@@ -107,8 +107,20 @@ def create_app():
     def shutdown_session(exception=None):
         db.session.remove()
     
+    # CORS configuration - support multiple frontend origins
+    frontend_url = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+    # Also allow common Vercel deployment URLs
+    allowed_origins = [
+        frontend_url,
+        'http://localhost:5173',
+        'http://localhost:3000',
+    ]
+    # Add any Vercel preview URLs (pattern: *.vercel.app)
+    if frontend_url and '.vercel.app' in frontend_url:
+        allowed_origins.append(frontend_url)
+    
     CORS(app, resources={r"/api/*": {
-        "origins": [os.environ.get('FRONTEND_URL', 'http://localhost:5173')],
+        "origins": allowed_origins,
         "supports_credentials": True,
         "allow_headers": ["Content-Type", "Authorization"],
         "expose_headers": ["Authorization"],
