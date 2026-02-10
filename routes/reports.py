@@ -227,6 +227,56 @@ def export_tickets_report():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    def get_overview_stats(start_date=None, end_date=None):
+    users_count = User.query.count()
+    events_count = Event.query.count()
+    approved_events = Event.query.filter_by(status=EventStatus.APPROVED).count()
+    tickets_count = Ticket.query.filter_by(payment_status='COMPLETED').count()
+
+    transactions = MpesaTransaction.query.filter_by(status='COMPLETED')
+    if start_date:
+        transactions = transactions.filter(MpesaTransaction.created_at >= start_date)
+    if end_date:
+        transactions = transactions.filter(MpesaTransaction.created_at <= end_date)
+
+    total_revenue = sum(float(t.amount) for t in transactions.all())
+
+    pending_events = db.session.execute(
+        text("SELECT COUNT(*) FROM events WHERE status IN ('DRAFT','PENDING_APPROVAL')")
+    ).scalar()
+
+    return {
+        'total_users': users_count,
+        'total_events': events_count,
+        'published_events': approved_events,
+        'total_tickets_sold': tickets_count,
+        'total_revenue': total_revenue,
+        'pending_events': pending_events
+    }
+
+
+def get_revenue_stats(start_date=None, end_date=None):
+    transactions = MpesaTransaction.query.filter_by(status='COMPLETED')
+    if start_date:
+        transactions = transactions.filter(MpesaTransaction.created_at >= start_date)
+    if end_date:
+        transactions = transactions.filter(MpesaTransaction.created_at <= end_date)
+
+    txs = transactions.all()
+    total = sum(float(t.amount) for t in txs)
+
+    daily = {}
+    for t in txs:
+        key = t.created_at.strftime('%Y-%m-%d')
+        daily[key] = daily.get(key, 0) + float(t.amount)
+
+    return {
+        'total_revenue': total,
+        'transaction_count': len(txs),
+        'average_transaction': total / len(txs) if txs else 0,
+        'daily_breakdown': daily
+    }
+
 
 
 
