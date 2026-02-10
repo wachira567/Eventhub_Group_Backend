@@ -158,6 +158,41 @@ def export_events_report():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+@reports_bp.route('/users/export', methods=['GET'])
+@jwt_required()
+def export_users_report():
+    """Export users data"""
+    try:
+        user = User.query.get(get_jwt_identity())
+        if user.role != UserRole.ADMIN:
+            return jsonify({'error': 'Permission denied'}), 403
+
+        users = User.query.all()
+        data = []
+
+        for u in users:
+            tickets = Ticket.query.filter_by(user_id=u.id).all()
+            spent = sum(float(t.total_price) for t in tickets if t.payment_status == 'COMPLETED')
+
+            data.append({
+                'id': u.id,
+                'name': u.name,
+                'email': u.email,
+                'role': u.role.value if hasattr(u.role, 'value') else u.role,
+                'is_verified': u.is_verified,
+                'is_active': u.is_active,
+                'total_tickets': len(tickets),
+                'total_spent': spent
+            })
+
+        return jsonify({
+            'users': data,
+            'total': len(data),
+            'generated_at': datetime.utcnow().isoformat()
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 
