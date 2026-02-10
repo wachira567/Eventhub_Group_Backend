@@ -387,3 +387,319 @@ def purchase_ticket():
 @tickets_bp.route("/initiate-payment", methods=["POST"])
 @jwt_required()
 
+def initiate_payment_for_reservation():
+    """Initiate payment for an existing reservation"""
+    logger.info("=== initiate_payment_for_reservation: Function entered ===")
+    try:
+        user_id = get_jwt_identity()
+        logger.info(f"initiate_payment: user_id={user_id}")
+
+        data = request.get_json()
+        ticket_id = data.get("ticket_id")
+        phone = data.get("phone") or data.get("phone_number")
+
+        logger.info(f"initiate_payment: ticket_id={ticket_id}, phone={phone}")
+
+        if not ticket_id:
+            return jsonify({"error": "Ticket ID is required"}), 400
+
+        if not phone:
+            return jsonify({"error": "Phone number is required"}), 400
+
+        ticket = db.session.get(Ticket, ticket_id)
+        if not ticket:
+            logger.warning(f"initiate_payment: Ticket not found: {ticket_id}")
+            return jsonify({"error": "Ticket not found"}), 404
+
+        logger.info(
+            f"initiate_payment: ticket.user_id={ticket.user_id}, request user_id={user_id}"
+        )
+
+        # Fix type mismatch: user_id from JWT is string, ticket.user_id is int
+        if str(ticket.user_id) != str(user_id):
+            logger.warning(
+                f"initiate_payment: Permission denied - ticket.user_id={ticket.user_id}, user_id={user_id}"
+            )
+            return jsonify({"error": "Permission denied"}), 403
+
+        if ticket.payment_status != "PENDING":
+            logger.warning(
+                f"initiate_payment: Ticket {ticket_id} is not pending, status={ticket.payment_status}"
+            )
+            return jsonify({"error": "Ticket is not pending payment"}), 400
+
+        transaction = (
+            MpesaTransaction.query.filter_by(
+                user_id=user_id,
+                event_id=ticket.event_id,
+                ticket_type_id=ticket.ticket_type_id,
+                status="PENDING",
+            )
+            .order_by(MpesaTransaction.id.desc())
+            .first()
+        )
+
+        logger.info(f"initiate_payment: Found transaction: {transaction}")
+
+        if not transaction:
+            logger.warning(
+                f"initiate_payment: No pending transaction found for ticket {ticket_id}"
+            )
+            return jsonify({"error": "No pending transaction found"}), 400
+
+        # Update transaction with phone and initiate payment
+        transaction.phone_number = phone
+        db.session.commit()
+
+        ticket_type = db.session.get(TicketTypeModel, ticket.ticket_type_id)
+        logger.info(
+            f"initiate_payment: ticket_type={ticket_type}, price={ticket_type.price if ticket_type else 'N/A'}"
+        )
+
+        if not ticket_type:
+            logger.error(
+                f"initiate_payment: Ticket type not found: {ticket.ticket_type_id}"
+            )
+            return jsonify({"error": "Ticket type not found"}), 400
+
+        total_price = ticket_type.price * ticket.quantity
+        logger.info(
+            f"initiate_payment: Calling mpesa_service with total_price={total_price}"
+        )
+
+        return initiate_mpesa_payment(
+            user_id,
+            ticket.event_id,
+            ticket.ticket_type_id,
+            ticket.quantity,
+            total_price,
+            phone,
+            transaction.id,
+        )
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"initiate_payment_for_reservation error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+def create_pending_reservation(user, event, ticket_type, quantity, data):
+    """Create a pending reservation without payment"""
+    try:
+        total_price = ticket_type.price * quantity
+
+        # Create a pending M-Pesa transaction (no payment yet)
+        from datetime import datetime
+        import time
+
+        reference = f"TICKET-{event.id}-{user.id}-{time.time()}"
+
+        transaction = MpesaTransaction(
+            user_id=user.id,
+            event_id=event.id,
+            ticket_type_id=ticket_type.id,
+            quantity=quantity,
+            amount=total_price,
+            phone_number="",  # Will be filled during payment
+            reference=reference,
+            status="PENDING",
+        )
+        db.session.add(transaction)
+        db.session.commit()
+
+        # Create a temporary ticket with pending status
+        ticket = Ticket(
+            user_id=user.id,
+            event_id=event.id,
+            ticket_type_id=ticket_type.id,
+            ticket_number=f"TEMP-{transaction.id}",
+            quantity=quantity,
+            total_price=total_price,
+            payment_status="PENDING",
+        )
+        db.session.add(ticket)
+        db.session.commit()
+
+        return jsonify(
+            {
+                "message": "Reservation created. Complete payment to confirm.",
+                "ticket": ticket.to_dict(),
+                "transaction_id": transaction.id,
+            }
+        ), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"create_pending_reservation error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+def create_guest_reservation(event, ticket_type, quantity, data, phone):
+    """Create a reservation for guest checkout"""
+    try:
+        import secrets
+
+        total_price = ticket_type.price * quantity
+
+        # Get guest details from data
+        guest_email = data.get("email")
+        guest_name = data.get("name")
+
+        logger.info(
+            f"create_guest_reservation: Storing guest_email={guest_email}, guest_name={guest_name}"
+        )
+
+        # Generate a unique reference
+        reference = f"GUEST-{event.id}-{secrets.randbelow(1000000)}"
+
+        # Create guest ticket FIRST (so we can link it to the transaction)
+        guest_token = secrets.token_urlsafe(32)
+
+        # Create guest ticket
+        ticket = Ticket(
+            user_id=None,  # No user account
+            event_id=event.id,
+            ticket_type_id=ticket_type.id,
+            ticket_number=f"GUEST-{secrets.randbelow(1000000)}",
+            quantity=quantity,
+            total_price=total_price,
+            payment_status="PENDING",
+            is_guest=True,
+            guest_email=data.get("email"),
+            guest_name=data.get("name"),
+        )
+        db.session.add(ticket)
+        db.session.flush()  # Get ticket ID
+
+        logger.info(f"create_guest_reservation: Created ticket ID {ticket.id}")
+
+        # Create a pending M-Pesa transaction with ticket_id link
+        transaction = MpesaTransaction(
+            user_id=None,  # NULL for guests - no foreign key violation
+            event_id=event.id,
+            ticket_type_id=ticket_type.id,
+            ticket_id=ticket.id,  # Link to the guest ticket
+            quantity=quantity,
+            amount=total_price,
+            phone_number=phone or "",
+            reference=reference,
+            status="PENDING",
+        )
+        db.session.add(transaction)
+        db.session.commit()
+
+        # Update ticket with transaction reference
+        ticket.ticket_number = f"GUEST-{transaction.id}"
+        db.session.commit()
+
+        return jsonify(
+            {
+                "message": "Guest reservation created. Complete payment to confirm.",
+                "ticket": ticket.to_dict(),
+                "transaction_id": transaction.id,
+                "guest_token": guest_token,
+                "guest_email": data.get("email"),
+                "guest_name": data.get("name"),
+            }
+        ), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"create_guest_reservation error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/guest-initiate-payment", methods=["POST"])
+def initiate_guest_payment():
+    """Initiate payment for a guest reservation"""
+    logger.info("=== initiate_guest_payment: Function entered ===")
+    try:
+        data = request.get_json()
+        ticket_id = data.get("ticket_id")
+        guest_token = data.get("guest_token")
+        phone = data.get("phone") or data.get("phone_number")
+
+        logger.info(
+            f"initiate_guest_payment: ticket_id={ticket_id}, guest_token present={bool(guest_token)}, phone={phone}"
+        )
+
+        if not ticket_id:
+            return jsonify({"error": "Ticket ID is required"}), 400
+
+        if not guest_token:
+            return jsonify({"error": "Guest token is required"}), 400
+
+        if not phone:
+            return jsonify({"error": "Phone number is required"}), 400
+
+        ticket = db.session.get(Ticket, ticket_id)
+        if not ticket:
+            logger.warning(f"initiate_guest_payment: Ticket not found: {ticket_id}")
+            return jsonify({"error": "Ticket not found"}), 404
+
+        # Verify guest token
+        if not ticket.is_guest:
+            logger.warning(
+                f"initiate_guest_payment: Ticket {ticket_id} is not a guest ticket"
+            )
+            return jsonify({"error": "Invalid ticket"}), 400
+
+        if ticket.payment_status != "PENDING":
+            logger.warning(
+                f"initiate_guest_payment: Ticket {ticket_id} is not pending, status={ticket.payment_status}"
+            )
+            return jsonify({"error": "Ticket is not pending payment"}), 400
+
+        # Find the pending transaction for this guest ticket
+        transaction = (
+            MpesaTransaction.query.filter_by(
+                event_id=ticket.event_id,
+                ticket_type_id=ticket.ticket_type_id,
+                status="PENDING",
+            )
+            .order_by(MpesaTransaction.id.desc())
+            .first()
+        )
+
+        if not transaction:
+            logger.warning(
+                f"initiate_guest_payment: No pending transaction found for ticket {ticket_id}"
+            )
+            return jsonify({"error": "No pending transaction found"}), 400
+
+        # Update transaction with phone (keep user_id as NULL for guests)
+        transaction.phone_number = phone
+        # Don't set user_id - keep it NULL for guests
+        db.session.commit()
+
+        ticket_type = db.session.get(TicketTypeModel, ticket.ticket_type_id)
+        logger.info(f"initiate_guest_payment: ticket_type={ticket_type}")
+
+        if not ticket_type:
+            logger.error(
+                f"initiate_guest_payment: Ticket type not found: {ticket.ticket_type_id}"
+            )
+            return jsonify({"error": "Ticket type not found"}), 400
+
+        total_price = float(ticket_type.price) * ticket.quantity
+        logger.info(
+            f"initiate_guest_payment: Calling mpesa_service with total_price={total_price}"
+        )
+
+        # Use None for guest transactions
+        return initiate_mpesa_payment(
+            None,
+            ticket.event_id,
+            ticket.ticket_type_id,
+            ticket.quantity,
+            total_price,
+            phone,
+            transaction.id,
+        )
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"initiate_guest_payment error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
