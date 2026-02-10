@@ -13,6 +13,7 @@ mpesa_bp = Blueprint('mpesa', __name__)
 
 
 @mpesa_bp.route('/stk-push-callback', methods=['POST'])
+@mpesa_bp.route('/callback', methods=['POST'])
 def stk_push_callback():
     """Handle M-Pesa STK Push callback"""
     try:
