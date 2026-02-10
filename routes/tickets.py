@@ -37,7 +37,6 @@ QR_SIGNING_KEY = os.environ.get(
 ).encode()
 
 
-
 def generate_secure_qr_data(ticket_id: int) -> str:
     """Generate a secure, verifiable QR code token with HMAC signature"""
     # Generate a unique UUID for this ticket
@@ -51,6 +50,7 @@ def generate_secure_qr_data(ticket_id: int) -> str:
 
     # Return format: UUID:SIGNATURE:TICKET_ID
     return f"{ticket_uuid}:{signature}:{ticket_id}"
+
 
 def verify_qr_token(qr_data: str) -> dict:
     """Verify a QR code token and return the ticket ID if valid"""
@@ -212,7 +212,6 @@ def debug_qr_test():
 
 @tickets_bp.route("/debug/regenerate-qr/<int:ticket_id>", methods=["POST"])
 @jwt_required()
-
 def debug_regenerate_qr(ticket_id):
     """Debug endpoint to regenerate QR code for a ticket"""
     try:
@@ -386,7 +385,6 @@ def purchase_ticket():
 
 @tickets_bp.route("/initiate-payment", methods=["POST"])
 @jwt_required()
-
 def initiate_payment_for_reservation():
     """Initiate payment for an existing reservation"""
     logger.info("=== initiate_payment_for_reservation: Function entered ===")
@@ -701,7 +699,8 @@ def initiate_guest_payment():
         db.session.rollback()
         logger.error(f"initiate_guest_payment error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
-    
+
+
 def create_guest_tickets(transaction):
     """Create tickets for guest after successful payment - now with secure QR codes"""
     try:
@@ -882,6 +881,7 @@ def create_guest_tickets(transaction):
         db.session.rollback()
         logger.error(f"create_guest_tickets error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+
 
 def initiate_mpesa_payment(
     user_id,
@@ -1275,8 +1275,7 @@ def create_tickets(transaction):
 
 
 @tickets_bp.route("/my-tickets", methods=["GET"])
-@jwt_required()    
-
+@jwt_required()
 def get_my_tickets():
     """Get current user's tickets"""
     try:
@@ -1336,7 +1335,9 @@ def get_my_tickets():
     except Exception as e:
         logger.error(f"get_my_tickets error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
-    @tickets_bp.route("", methods=["GET"])
+
+
+@tickets_bp.route("", methods=["GET"])
 @jwt_required()
 def get_all_tickets():
     """Get all tickets for admin"""
@@ -1959,5 +1960,3 @@ def confirm_ticket_by_code():
         db.session.rollback()
         logger.error(f"confirm_ticket_by_code error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
-
-

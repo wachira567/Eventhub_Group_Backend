@@ -1,3 +1,7 @@
+"""
+MPESA Payment Routes
+"""
+
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from extensions import db
