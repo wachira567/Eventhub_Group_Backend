@@ -10,7 +10,7 @@ flask-migrate = "==4.0.5"
 flask-cors = "==4.0.0"
 flask-jwt-extended = "==4.6.0"
 flask-mail = "==0.9.1"
-psycopg2-binary = "==2.9.9"
+psycopg = {version = "*", extras = ["binary"]}
 sqlalchemy = ">=2.0.36"
 python-dotenv = "==1.0.0"
 requests = "==2.31.0"
