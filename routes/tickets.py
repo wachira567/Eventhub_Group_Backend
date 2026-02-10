@@ -882,6 +882,399 @@ def create_guest_tickets(transaction):
         db.session.rollback()
         logger.error(f"create_guest_tickets error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
-    
+
+def initiate_mpesa_payment(
+    user_id,
+    event_id,
+    ticket_type_id,
+    quantity,
+    total_price,
+    phone,
+    existing_transaction_id=None,
+):
+    """Initiate M-Pesa STK Push payment"""
+    try:
+        from services.mpesa_service import mpesa_service
+
+        if existing_transaction_id:
+            transaction = MpesaTransaction.query.get(existing_transaction_id)
+            if not transaction:
+                return jsonify({"error": "Transaction not found"}), 400
+        else:
+            reference = f"TICKET-{event_id}-{user_id}-{datetime.utcnow().timestamp()}"
+
+            transaction = MpesaTransaction(
+                user_id=user_id,
+                event_id=event_id,
+                ticket_type_id=ticket_type_id,
+                quantity=quantity,
+                amount=total_price,
+                phone_number=phone,
+                reference=reference,
+                status="PENDING",
+            )
+            db.session.add(transaction)
+            db.session.commit()
+
+        response = mpesa_service.initiate_stk_push(
+            phone_number=phone,
+            amount=int(total_price),
+            order_id=transaction.reference,
+            description=f"EventHub Tickets - Event {event_id}",
+        )
+
+        if response.get("success"):
+            transaction.checkout_request_id = response.get("checkout_request_id")
+            db.session.commit()
+
+            return jsonify(
+                {
+                    "message": "Payment initiated. Please check your phone.",
+                    "transaction_id": transaction.id,
+                    "checkout_request_id": response.get("checkout_request_id"),
+                    "payment_url": None,
+                }
+            ), 200
+        else:
+            transaction.status = "FAILED"
+            db.session.commit()
+
+            return jsonify(
+                {
+                    "error": "Payment initiation failed",
+                    "details": response.get("error", "Unknown error"),
+                }
+            ), 400
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/confirm-payment", methods=["POST"])
+def confirm_payment():
+    """Confirm payment and create tickets"""
+    try:
+        data = request.get_json()
+        transaction_id = data.get("transaction_id")
+        checkout_request_id = data.get("checkout_request_id")
+        payment_method = data.get("payment_method", "mpesa")
+
+        logger.info(
+            f"confirm_payment: transaction_id={transaction_id}, checkout_request_id={checkout_request_id}, payment_method={payment_method}"
+        )
+
+        if payment_method == "mpesa":
+            if not checkout_request_id:
+                logger.warning("confirm_payment: No checkout_request_id provided")
+                return jsonify({"error": "checkout_request_id is required"}), 400
+
+            # First find transaction by checkout_request_id
+            transaction = MpesaTransaction.query.filter_by(
+                checkout_request_id=checkout_request_id
+            ).first()
+
+            if not transaction:
+                logger.warning(
+                    f"confirm_payment: Transaction not found for checkout_request_id={checkout_request_id}"
+                )
+                return jsonify({"error": "Transaction not found"}), 404
+
+            logger.info(
+                f"confirm_payment: Found transaction: id={transaction.id}, status={transaction.status}, checkout_request_id={transaction.checkout_request_id}"
+            )
+
+            # Check if this specific transaction has already been processed
+            # We check if the pending ticket linked to this transaction is already COMPLETED
+            pending_ticket = None
+            if transaction.ticket_id:
+                pending_ticket = db.session.get(Ticket, transaction.ticket_id)
+
+            if pending_ticket and pending_ticket.payment_status == "COMPLETED":
+                # This transaction was already processed - return the existing completed tickets
+                existing_tickets = Ticket.query.filter_by(
+                    event_id=transaction.event_id,
+                    ticket_type_id=transaction.ticket_type_id,
+                    payment_status="COMPLETED",
+                ).all()
+                logger.warning(
+                    f"confirm_payment: Transaction {transaction.id} already processed, found {len(existing_tickets)} completed tickets"
+                )
+                return jsonify(
+                    {
+                        "message": "Payment already confirmed",
+                        "transaction_id": transaction.id,
+                        "status": "already_processed",
+                        "tickets": [t.to_dict() for t in existing_tickets],
+                    }
+                ), 200
+
+            # Check if this is a guest transaction (user_id = 0 or linked to guest ticket)
+            # Use transaction.ticket_id if available, otherwise fall back to searching
+            guest_ticket = None
+            if transaction.ticket_id:
+                guest_ticket = db.session.get(Ticket, transaction.ticket_id)
+                logger.info(
+                    f"confirm_payment: Found guest ticket by transaction.ticket_id={transaction.ticket_id}, "
+                    f"guest_ticket.is_guest={guest_ticket.is_guest if guest_ticket else 'N/A'}, "
+                    f"guest_ticket.user_id={guest_ticket.user_id if guest_ticket else 'N/A'}"
+                )
+
+            if not guest_ticket:
+                # Fallback: search by event/ticket_type AND phone number (more specific)
+                # Only use this fallback for truly guest transactions (user_id is None)
+                if transaction.user_id is None:
+                    phone_filter = (
+                        transaction.phone_number if transaction.phone_number else None
+                    )
+                    if phone_filter:
+                        guest_ticket = (
+                            Ticket.query.filter_by(
+                                event_id=transaction.event_id,
+                                ticket_type_id=transaction.ticket_type_id,
+                                is_guest=True,
+                                payment_status="PENDING",
+                            )
+                            .filter(
+                                or_(
+                                    Ticket.guest_email.ilike(f"%{phone_filter}%"),
+                                    Ticket.guest_name.ilike(f"%{phone_filter}%"),
+                                )
+                            )
+                            .first()
+                        )
+                    else:
+                        # If no phone number, search by the most recent pending guest ticket
+                        guest_ticket = (
+                            Ticket.query.filter_by(
+                                event_id=transaction.event_id,
+                                ticket_type_id=transaction.ticket_type_id,
+                                is_guest=True,
+                                payment_status="PENDING",
+                            )
+                            .order_by(Ticket.id.desc())
+                            .first()
+                        )
+                    logger.info(
+                        f"confirm_payment: Fallback search found guest_ticket={guest_ticket.id if guest_ticket else None}, "
+                        f"transaction.user_id={transaction.user_id}, has_phone={bool(phone_filter)}"
+                    )
+                else:
+                    logger.info(
+                        f"confirm_payment: Transaction has user_id={transaction.user_id}, skipping guest ticket fallback"
+                    )
+
+            if guest_ticket:
+                # This is a guest transaction - verify it has guest email
+                logger.info(
+                    f"confirm_payment: Guest transaction detected, guest_ticket.id={guest_ticket.id}, "
+                    f"guest_email={guest_ticket.guest_email}, transaction.user_id={transaction.user_id}"
+                )
+                # Double-check: if the transaction has a user_id (authenticated user)
+                # but we found a guest ticket, this is an error - don't process as guest
+                if transaction.user_id is not None:
+                    logger.error(
+                        f"confirm_payment: ERROR - Transaction has user_id={transaction.user_id} but found guest ticket. "
+                        f"Not processing as guest. Guest ticket email: {guest_ticket.guest_email}"
+                    )
+                    return jsonify(
+                        {
+                            "error": "Ticket mismatch: You are logged in but ticket is for a guest. Please try again."
+                        }
+                    ), 400
+                return create_guest_tickets(transaction)
+
+            result = verify_mpesa_payment(transaction)
+
+            if result["success"]:
+                return create_tickets(transaction)
+            else:
+                return jsonify({"error": result["error"]}), 400
+        else:
+            transaction = MpesaTransaction.query.get(transaction_id)
+            if not transaction:
+                return jsonify({"error": "Invalid transaction"}), 400
+
+            return create_tickets(transaction)
+
+    except Exception as e:
+        logger.error(f"confirm_payment error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+def verify_mpesa_payment(transaction):
+    """Verify M-Pesa payment status"""
+    try:
+        # Refresh from database to get latest status
+        db.session.refresh(transaction)
+
+        logger.info(
+            f"verify_mpesa_payment: Transaction {transaction.id}, current status='{transaction.status}', checkout_request_id='{transaction.checkout_request_id}'"
+        )
+
+        # If transaction is already marked as completed (e.g., from simulate-complete), skip API query
+        # Check both lowercase and uppercase for compatibility
+        if transaction.status and transaction.status.lower() == "completed":
+            logger.info(
+                f"verify_mpesa_payment: Transaction {transaction.id} already marked as completed, skipping API query"
+            )
+            return {"success": True}
+
+        from services.mpesa_service import mpesa_service
+
+        if not transaction.checkout_request_id:
+            logger.warning(
+                f"verify_mpesa_payment: No checkout_request_id for transaction {transaction.id}"
+            )
+            return {"success": False, "error": "No checkout request ID"}
+
+        response = mpesa_service.query_stk_status(
+            checkout_request_id=transaction.checkout_request_id
+        )
+
+        logger.info(f"verify_mpesa_payment: API response={response}")
+
+        if response.get("ResultCode") == 0:
+            transaction.status = "COMPLETED"
+            db.session.commit()
+            return {"success": True}
+        else:
+            transaction.status = "FAILED"
+            db.session.commit()
+            return {
+                "success": False,
+                "error": response.get("ResultDesc", "Payment failed"),
+            }
+
+    except Exception as e:
+        logger.error(f"verify_mpesa_payment error: {str(e)}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+def create_tickets(transaction):
+    """Create tickets after successful payment - now with secure QR codes"""
+    try:
+        user_id = transaction.user_id
+        event_id = transaction.event_id
+        ticket_type_id = transaction.ticket_type_id
+        quantity = transaction.quantity
+
+        # Check if this specific transaction has already been processed
+        # Look for existing COMPLETED tickets with the same transaction reference
+        existing_tickets = Ticket.query.filter_by(
+            user_id=user_id,
+            event_id=event_id,
+            ticket_type_id=ticket_type_id,
+            payment_status="COMPLETED",
+        ).all()
+
+        # If tickets already exist for this transaction, return them without creating duplicates
+        # Check if the transaction was already marked as completed
+        if transaction.status == "COMPLETED" and existing_tickets:
+            logger.warning(
+                f"create_tickets: Transaction {transaction.id} already processed, found {len(existing_tickets)} completed tickets"
+            )
+            return jsonify(
+                {
+                    "message": "Payment already confirmed",
+                    "transaction_id": transaction.id,
+                    "status": "already_processed",
+                    "tickets": [t.to_dict() for t in existing_tickets],
+                }
+            ), 200
+
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        event = db.session.get(Event, event_id)
+        if not event:
+            return jsonify({"error": "Event not found"}), 404
+
+        ticket_type = db.session.get(TicketTypeModel, ticket_type_id)
+        if not ticket_type:
+            return jsonify({"error": "Ticket type not found"}), 404
+
+        # Get total_price from ticket type (more reliable than transaction.amount)
+        total_price = float(ticket_type.price) * quantity
+
+        # Create tickets with secure QR codes
+        tickets = []
+        for i in range(quantity):
+            # First create the ticket to get its ID
+            ticket = Ticket(
+                user_id=user_id,
+                event_id=event_id,
+                ticket_type_id=ticket_type_id,
+                ticket_number=f"TEMP-{i + 1}",
+                qr_code="",
+                qr_data="",
+                total_price=total_price,
+                payment_status="COMPLETED",
+            )
+            db.session.add(ticket)
+            db.session.flush()  # Get the ticket ID without committing
+
+            # Now generate secure QR data with the actual ticket ID
+            qr_data = generate_secure_qr_data(ticket.id)
+            qr_code = generate_qr_code(qr_data)
+
+            logger.info(
+                f"create_tickets: Generated QR for ticket {ticket.id}: {qr_data}"
+            )
+
+            # Update ticket with QR code
+            ticket.ticket_number = qr_data[:16].upper()
+            ticket.qr_code = qr_code
+            ticket.qr_data = qr_data
+
+            tickets.append(ticket)
+
+        ticket_type.sold_quantity += quantity
+
+        transaction.status = "COMPLETED"
+        db.session.commit()
+
+        # Generate PDF and send email
+        try:
+            # Generate PDF for each ticket
+            pdf_buffer = generate_ticket_pdf(tickets[0], ticket_type, event, user)
+
+            # Send confirmation email with PDF
+            email_sent = send_ticket_with_pdf(
+                user_email=user.email,
+                user_name=user.name,
+                event_title=event.title,
+                ticket_number=tickets[0].ticket_number,
+                quantity=quantity,
+                total_price=float(transaction.amount),
+                pdf_buffer=pdf_buffer,
+            )
+
+            if email_sent:
+                logger.info(f"Ticket confirmation email sent to {user.email}")
+            else:
+                logger.warning(f"Failed to send ticket email to {user.email}")
+
+        except Exception as email_error:
+            logger.error(f"Error sending ticket email: {str(email_error)}")
+            # Don't fail the transaction if email fails
+
+        return jsonify(
+            {
+                "message": "Payment successful! Your tickets are ready. Check your email for the ticket PDF.",
+                "tickets": [ticket.to_dict() for ticket in tickets],
+                "email_sent": email_sent if "email_sent" in dir() else False,
+            }
+        ), 201
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"create_tickets error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/my-tickets", methods=["GET"])
+@jwt_required()    
 
 
