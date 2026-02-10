@@ -5,8 +5,9 @@ MPESA Payment Routes
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from extensions import db
-from models import MpesaTransaction, Ticket, TicketStatus
+from models import MpesaTransaction, Ticket, TicketStatus, User, Event, TicketTypeModel
 from services.mpesa_service import mpesa_service
+from services.email_service import send_ticket_confirmation
 
 
 mpesa_bp = Blueprint('mpesa', __name__)
@@ -50,11 +51,22 @@ def stk_push_callback():
             transaction.status = 'completed'
             transaction.mpesa_receipt = mpesa_receipt
             transaction.result_desc = result_desc
+            transaction.completed_at = datetime.utcnow()
             
             if amount:
                 transaction.amount = amount
             
+            # Update associated ticket payment status
+            if transaction.ticket_id:
+                ticket = Ticket.query.get(transaction.ticket_id)
+                if ticket:
+                    ticket.payment_status = 'completed'
+                    ticket.mpesa_receipt = mpesa_receipt
+            
             db.session.commit()
+            
+            # Send confirmation email
+            _send_payment_confirmation_email(transaction)
             
             return jsonify({'message': 'Payment processed successfully'}), 200
         else:
@@ -70,6 +82,53 @@ def stk_push_callback():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+
+def _send_payment_confirmation_email(transaction):
+    """Send payment confirmation email"""
+    try:
+        # Get user and event details
+        user = User.query.get(transaction.user_id) if transaction.user_id else None
+        event = Event.query.get(transaction.event_id)
+        ticket_type = TicketTypeModel.query.get(transaction.ticket_type_id)
+        
+        # Get ticket
+        ticket = Ticket.query.get(transaction.ticket_id) if transaction.ticket_id else None
+        
+        if not event:
+            return False
+        
+        # Determine recipient
+        if user:
+            recipient_email = user.email
+            recipient_name = user.name
+        elif ticket and ticket.is_guest:
+            recipient_email = ticket.guest_email
+            recipient_name = ticket.guest_name or 'Guest'
+        else:
+            return False
+        
+        # Get ticket number
+        ticket_number = ticket.ticket_number if ticket else f"TXN{transaction.id}"
+        quantity = transaction.quantity or 1
+        total_price = float(transaction.amount) if transaction.amount else 0
+        
+        # Send email without PDF (PDF generation may require additional setup)
+        success = send_ticket_confirmation(
+            user_email=recipient_email,
+            user_name=recipient_name,
+            event_title=event.title,
+            ticket_number=ticket_number,
+            quantity=quantity,
+            total_price=total_price
+        )
+        
+        print(f"Payment confirmation email sent: {success} to {recipient_email}")
+        return success
+    
+    except Exception as e:
+        print(f"Error sending payment confirmation email: {e}")
+        return False
 
 
 @mpesa_bp.route('/b2c-callback', methods=['POST'])
@@ -136,7 +195,19 @@ def simulate_payment_complete(identifier):
         transaction.status = 'completed'
         transaction.mpesa_receipt = f"TEST{transaction.id}{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
         transaction.result_desc = "Payment completed successfully"
+        transaction.completed_at = datetime.utcnow()
+        
+        # Update associated ticket payment status
+        if transaction.ticket_id:
+            ticket = Ticket.query.get(transaction.ticket_id)
+            if ticket:
+                ticket.payment_status = 'completed'
+                ticket.mpesa_receipt = transaction.mpesa_receipt
+        
         db.session.commit()
+        
+        # Send confirmation email
+        _send_payment_confirmation_email(transaction)
         
         return jsonify({
             'message': 'Payment simulated successfully',
@@ -165,7 +236,19 @@ def query_payment(transaction_id):
         if response.get('ResultCode') == 0:
             transaction.status = 'completed'
             transaction.mpesa_receipt = response.get('Result', {}).get('MpesaReceiptNumber')
+            transaction.completed_at = datetime.utcnow()
+            
+            # Update associated ticket payment status
+            if transaction.ticket_id:
+                ticket = Ticket.query.get(transaction.ticket_id)
+                if ticket:
+                    ticket.payment_status = 'completed'
+                    ticket.mpesa_receipt = transaction.mpesa_receipt
+            
             db.session.commit()
+            
+            # Send confirmation email
+            _send_payment_confirmation_email(transaction)
             
             return jsonify({
                 'status': 'completed',
