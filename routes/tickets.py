@@ -1336,5 +1336,628 @@ def get_my_tickets():
     except Exception as e:
         logger.error(f"get_my_tickets error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+    @tickets_bp.route("", methods=["GET"])
+@jwt_required()
+def get_all_tickets():
+    """Get all tickets for admin"""
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+
+        if not user or user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
+            return jsonify({"error": "Permission denied"}), 403
+
+        status = request.args.get("status", "").strip()
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 12, type=int)
+
+        query = Ticket.query
+
+        if status:
+            query = query.filter(Ticket.payment_status == status)
+
+        pagination = query.order_by(Ticket.purchased_at.desc()).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+
+        return jsonify(
+            {
+                "tickets": [ticket.to_dict() for ticket in pagination.items],
+                "total": pagination.total,
+                "pages": pagination.pages,
+                "current_page": page,
+            }
+        ), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/<int:ticket_id>", methods=["GET"])
+@jwt_required()
+def get_ticket(ticket_id):
+    """Get single ticket details"""
+    try:
+        user_id = get_jwt_identity()
+        ticket = Ticket.query.get_or_404(ticket_id)
+
+        if ticket.user_id != user_id:
+            return jsonify({"error": "Permission denied"}), 403
+
+        return jsonify({"ticket": ticket.to_dict()}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/<int:ticket_id>/download", methods=["GET", "OPTIONS"])
+def download_ticket_pdf(ticket_id):
+    """Download ticket as PDF - supports both authenticated users and guests"""
+    # Handle CORS preflight requests
+    if request.method == "OPTIONS":
+        response = make_response()
+        response.headers.add("Access-Control-Allow-Origin", "http://localhost:5173")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        response.headers.add(
+            "Access-Control-Allow-Headers", "Content-Type, Authorization"
+        )
+        response.headers.add("Access-Control-Allow-Methods", "GET, OPTIONS")
+        return response, 200
+
+    try:
+        # Check for guest token in query parameters
+        guest_token = request.args.get("guest_token")
+        guest_email = request.args.get("email")
+
+        ticket = db.session.get(Ticket, ticket_id)
+        if not ticket:
+            return jsonify({"error": "Ticket not found"}), 404
+
+        # For guest tickets, verify guest token or email
+        if ticket.is_guest:
+            if guest_token:
+                # Guest token validation - the token was stored in session during purchase
+                # For now, accept any guest ticket if guest_token is provided
+                # In production, you should validate the token properly
+                pass
+            elif guest_email:
+                # Validate by email
+                if ticket.guest_email != guest_email:
+                    return jsonify({"error": "Permission denied"}), 403
+            else:
+                return jsonify(
+                    {"error": "Guest token or email required for guest ticket"}
+                ), 400
+        else:
+            # For authenticated users, require JWT
+            from flask_jwt_extended import jwt_required, get_jwt_identity
+
+            user_id = get_jwt_identity()
+
+            if ticket.user_id != user_id:
+                return jsonify({"error": "Permission denied"}), 403
+
+        ticket_type = db.session.get(TicketTypeModel, ticket.ticket_type_id)
+        event = db.session.get(Event, ticket.event_id)
+
+        # For guest tickets, user will be None
+        user = User.query.get(ticket.user_id) if ticket.user_id else None
+
+        pdf_data = generate_ticket_pdf(ticket, ticket_type, event, user)
+
+        response = make_response(
+            send_file(
+                io.BytesIO(pdf_data),
+                mimetype="application/pdf",
+                as_attachment=True,
+                download_name=f"ticket-{ticket.ticket_number}.pdf",
+            )
+        )
+
+        # Add CORS headers for file download
+        response.headers.add("Access-Control-Allow-Origin", "http://localhost:5173")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+
+        return response
+
+    except Exception as e:
+        logger.error(f"download_ticket_pdf error: {str(e)}", exc_info=True)
+        response = jsonify({"error": str(e)})
+        response.headers.add("Access-Control-Allow-Origin", "http://localhost:5173")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 500
+
+
+@tickets_bp.route("/<int:ticket_id>/qr", methods=["GET"])
+@jwt_required()
+def get_ticket_qr(ticket_id):
+    """Get ticket QR code image"""
+    try:
+        ticket = Ticket.query.get_or_404(ticket_id)
+
+        return jsonify(
+            {"qr_code": ticket.qr_code, "ticket_number": ticket.ticket_number}
+        ), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/verify", methods=["POST"])
+@jwt_required()
+def verify_ticket():
+    """Verify a ticket (for organizers) - now with secure QR verification"""
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+
+        if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
+            return jsonify({"error": "Permission denied"}), 403
+
+        data = request.get_json()
+        qr_data = data.get("qr_data", "").strip()
+        event_id = data.get("event_id")
+
+        if not qr_data:
+            return jsonify({"error": "QR data is required"}), 400
+
+        # Verify the QR code signature
+        logger.info(f"verify_ticket: QR data received: {qr_data}")
+        logger.info(f"verify_ticket: QR_SIGNING_KEY length: {len(QR_SIGNING_KEY)}")
+        verification = verify_qr_token(qr_data)
+        logger.info(f"verify_ticket: Verification result: {verification}")
+        if not verification["valid"]:
+            logger.warning(
+                f"verify_ticket: QR verification failed: {verification['error']}"
+            )
+            return jsonify({"valid": False, "error": verification["error"]}), 400
+
+        ticket_id = verification["ticket_id"]
+        ticket = Ticket.query.get(ticket_id)
+
+        if not ticket:
+            return jsonify({"valid": False, "error": "Ticket not found"}), 404
+
+        if event_id and ticket.event_id != event_id:
+            return jsonify(
+                {"valid": False, "error": "Ticket is for a different event"}
+            ), 400
+
+        event = Event.query.get(ticket.event_id)
+        if user.role == UserRole.ORGANIZER and event.organizer_id != user.id:
+            return jsonify(
+                {"error": "You can only verify tickets for your own events"}
+            ), 403
+
+        if ticket.is_used:
+            return jsonify(
+                {
+                    "valid": False,
+                    "error": "Ticket has already been used",
+                    "used_at": ticket.used_at,
+                    "ticket": ticket.to_dict(),
+                }
+            ), 400
+
+        if ticket.payment_status == "FAILED":
+            return jsonify(
+                {
+                    "valid": False,
+                    "error": "Ticket has been cancelled",
+                    "ticket": ticket.to_dict(),
+                }
+            ), 400
+
+        if event.end_date < datetime.utcnow():
+            return jsonify(
+                {
+                    "valid": False,
+                    "error": "Event has already ended",
+                    "ticket": ticket.to_dict(),
+                }
+            ), 400
+
+        ticket.is_used = True
+        ticket.used_at = datetime.utcnow()
+        ticket.verified_by = user_id
+        db.session.commit()
+
+        return jsonify(
+            {
+                "valid": True,
+                "message": "Ticket verified successfully",
+                "ticket": ticket.to_dict(),
+            }
+        ), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/<int:ticket_id>", methods=["DELETE"])
+@jwt_required()
+def cancel_ticket(ticket_id):
+    """Cancel a ticket (refund process)"""
+    try:
+        user_id = get_jwt_identity()
+        ticket = Ticket.query.get_or_404(ticket_id)
+
+        if ticket.user_id != user_id:
+            return jsonify({"error": "Permission denied"}), 403
+
+        if ticket.is_used:
+            return jsonify({"error": "Cannot cancel a used ticket"}), 400
+
+        event = Event.query.get(ticket.event_id)
+        if event.start_date < datetime.utcnow():
+            return jsonify({"error": "Cannot cancel ticket for past event"}), 400
+
+        ticket.payment_status = "FAILED"
+
+        ticket_type = TicketTypeModel.query.get(ticket.ticket_type_id)
+        ticket_type.sold_quantity -= 1
+
+        db.session.commit()
+
+        return jsonify(
+            {"message": "Ticket cancelled successfully", "ticket": ticket.to_dict()}
+        ), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/event/<int:event_id>", methods=["GET"])
+@jwt_required()
+def get_event_tickets(event_id):
+    """Get all tickets for an event (organizer only)"""
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+
+        event = Event.query.get_or_404(event_id)
+
+        if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
+            return jsonify({"error": "Permission denied"}), 403
+
+        if user.role == UserRole.ORGANIZER and event.organizer_id != user.id:
+            return jsonify(
+                {"error": "You can only view tickets for your own events"}
+            ), 403
+
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 50, type=int)
+        status = request.args.get("status", "").strip()
+
+        query = Ticket.query.filter_by(event_id=event_id)
+
+        if status:
+            query = query.filter(Ticket.payment_status == status)
+
+        pagination = query.order_by(Ticket.purchased_at.desc()).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+
+        return jsonify(
+            {
+                "tickets": [ticket.to_dict() for ticket in pagination.items],
+                "total": pagination.total,
+                "pages": pagination.pages,
+                "current_page": page,
+            }
+        ), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/event/<int:event_id>/scan", methods=["POST"])
+@jwt_required()
+def scan_ticket(event_id):
+    """Scan and verify ticket at event entry - now with secure QR verification"""
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+
+        if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
+            return jsonify({"error": "Permission denied"}), 403
+
+        event = Event.query.get_or_404(event_id)
+
+        if user.role == UserRole.ORGANIZER and event.organizer_id != user.id:
+            return jsonify(
+                {"error": "You can only scan tickets for your own events"}
+            ), 403
+
+        data = request.get_json()
+        qr_data = data.get("qr_data", "").strip()
+
+        if not qr_data:
+            return jsonify({"error": "QR data is required"}), 400
+
+        # Verify the QR code signature with detailed logging
+        logger.info(f"scan_ticket: Received QR data: {qr_data}")
+        verification = verify_qr_token(qr_data)
+        logger.info(f"scan_ticket: Verification result: {verification}")
+        if not verification["valid"]:
+            logger.warning(f"scan_ticket: QR verification failed for {qr_data}")
+            return jsonify({"valid": False, "error": verification["error"]}), 400
+
+        ticket_id = verification["ticket_id"]
+        logger.info(f"scan_ticket: Looking for ticket with id: {ticket_id}")
+        ticket = Ticket.query.get(ticket_id)
+
+        if not ticket:
+            logger.warning(f"scan_ticket: Ticket not found for id: {ticket_id}")
+            return jsonify({"valid": False, "error": "Invalid ticket"}), 404
+
+        if ticket.event_id != event_id:
+            return jsonify(
+                {"valid": False, "error": "Ticket is for a different event"}
+            ), 400
+
+        if ticket.is_used:
+            return jsonify(
+                {
+                    "valid": False,
+                    "error": "Ticket already used",
+                    "ticket": ticket.to_dict(),
+                }
+            ), 400
+
+        if ticket.payment_status == "FAILED":
+            return jsonify(
+                {
+                    "valid": False,
+                    "error": "Ticket is cancelled",
+                    "ticket": ticket.to_dict(),
+                }
+            ), 400
+
+        ticket.is_used = True
+        ticket.used_at = datetime.utcnow()
+        ticket.verified_by = user_id
+        db.session.commit()
+
+        return jsonify(
+            {
+                "valid": True,
+                "message": "Ticket verified successfully",
+                "ticket": ticket.to_dict(),
+            }
+        ), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"scan_ticket error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/event/<int:event_id>/stats", methods=["GET"])
+@jwt_required()
+def get_ticket_stats(event_id):
+    """Get ticket statistics for an event"""
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+
+        event = Event.query.get_or_404(event_id)
+
+        if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
+            return jsonify({"error": "Permission denied"}), 403
+
+        if user.role == UserRole.ORGANIZER and event.organizer_id != user.id:
+            return jsonify(
+                {"error": "You can only view stats for your own events"}
+            ), 403
+
+        ticket_types = TicketTypeModel.query.filter_by(event_id=event_id).all()
+
+        stats = {
+            "total_tickets_available": sum(tt.quantity for tt in ticket_types),
+            "total_tickets_sold": sum(tt.sold_quantity for tt in ticket_types),
+            "total_revenue": sum(tt.sold_quantity * tt.price for tt in ticket_types),
+            "ticket_types": [tt.to_dict() for tt in ticket_types],
+            "valid_tickets": Ticket.query.filter_by(
+                event_id=event_id, payment_status="COMPLETED"
+            ).count(),
+            "used_tickets": Ticket.query.filter_by(
+                event_id=event_id, is_used=True
+            ).count(),
+            "cancelled_tickets": Ticket.query.filter_by(
+                event_id=event_id, payment_status="FAILED"
+            ).count(),
+        }
+
+        return jsonify({"stats": stats}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/event/<int:event_id>/search", methods=["GET", "POST"])
+@jwt_required()
+def search_event_tickets(event_id):
+    """Search tickets for an event by phone, email, or ticket number"""
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+
+        event = Event.query.get_or_404(event_id)
+
+        if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
+            return jsonify({"error": "Permission denied"}), 403
+
+        if user.role == UserRole.ORGANIZER and event.organizer_id != user.id:
+            return jsonify(
+                {"error": "You can only search tickets for your own events"}
+            ), 403
+
+        # For POST requests, read from JSON body; for GET, read from query params
+        if request.method == "POST":
+            data = request.get_json() or {}
+            search_query = data.get("search", "").strip().lower()
+        else:
+            search_query = request.args.get("search", "").strip().lower()
+
+        if not search_query:
+            return jsonify({"tickets": []}), 200
+
+        # Search by ticket number, guest email, or guest name
+        query = Ticket.query.filter_by(event_id=event_id)
+
+        # Add search conditions
+        search_conditions = []
+
+        # Search by ticket number (case insensitive)
+        search_conditions.append(Ticket.ticket_number.ilike(f"%{search_query}%"))
+
+        # Search by guest email
+        search_conditions.append(Ticket.guest_email.ilike(f"%{search_query}%"))
+
+        # Search by guest name
+        search_conditions.append(Ticket.guest_name.ilike(f"%{search_query}%"))
+
+        # Combine conditions with OR
+        query = query.filter(or_(*search_conditions))
+
+        tickets = query.order_by(Ticket.purchased_at.desc()).limit(20).all()
+
+        return jsonify(
+            {"tickets": [ticket.to_dict() for ticket in tickets], "count": len(tickets)}
+        ), 200
+
+    except Exception as e:
+        logger.error(f"search_event_tickets error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/debug/reset-ticket/<int:ticket_id>", methods=["POST"])
+def debug_reset_ticket(ticket_id):
+    """Debug endpoint to reset ticket usage (for testing)"""
+    try:
+        ticket = Ticket.query.get(ticket_id)
+        if not ticket:
+            return jsonify({"error": "Ticket not found"}), 404
+
+        ticket.is_used = False
+        ticket.used_at = None
+        ticket.verified_by = None
+        db.session.commit()
+
+        return jsonify(
+            {
+                "message": f"Ticket {ticket_id} has been reset",
+                "ticket": ticket.to_dict(),
+            }
+        ), 200
+    except Exception as e:
+        logger.error(f"debug_reset_ticket error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/debug/list-used-tickets/<int:event_id>", methods=["GET"])
+def debug_list_used_tickets(event_id):
+    """Debug endpoint to list all used tickets for an event"""
+    try:
+        used_tickets = (
+            Ticket.query.filter_by(event_id=event_id, is_used=True)
+            .order_by(Ticket.used_at.desc())
+            .all()
+        )
+
+        return jsonify(
+            {"count": len(used_tickets), "tickets": [t.to_dict() for t in used_tickets]}
+        ), 200
+    except Exception as e:
+        logger.error(f"debug_list_used_tickets error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@tickets_bp.route("/confirm-by-code", methods=["POST"])
+@jwt_required()
+def confirm_ticket_by_code():
+    """Confirm ticket entry by ticket number (for manual/backup verification)"""
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+
+        if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
+            return jsonify({"error": "Permission denied"}), 403
+
+        data = request.get_json()
+        ticket_code = data.get("ticket_code", "").strip().upper()
+        event_id = data.get("event_id")
+
+        if not ticket_code:
+            return jsonify({"error": "Ticket code is required"}), 400
+
+        if not event_id:
+            return jsonify({"error": "Event ID is required"}), 400
+
+        event = Event.query.get(event_id)
+        if not event:
+            return jsonify({"error": "Event not found"}), 404
+
+        if user.role == UserRole.ORGANIZER and event.organizer_id != user.id:
+            return jsonify(
+                {"error": "You can only verify tickets for your own events"}
+            ), 403
+
+        ticket = Ticket.query.filter_by(
+            ticket_number=ticket_code, event_id=event_id
+        ).first()
+
+        if not ticket:
+            return jsonify({"valid": False, "error": "Ticket not found"}), 404
+
+        if ticket.is_used:
+            return jsonify(
+                {
+                    "valid": False,
+                    "error": "Ticket has already been used",
+                    "used_at": ticket.used_at,
+                    "ticket": ticket.to_dict(),
+                }
+            ), 400
+
+        if ticket.payment_status == "FAILED":
+            return jsonify(
+                {
+                    "valid": False,
+                    "error": "Ticket has been cancelled",
+                    "ticket": ticket.to_dict(),
+                }
+            ), 400
+
+        if ticket.payment_status != "COMPLETED":
+            return jsonify(
+                {
+                    "valid": False,
+                    "error": f"Ticket status is {ticket.payment_status}, not valid for entry",
+                    "ticket": ticket.to_dict(),
+                }
+            ), 400
+
+        # Confirm the ticket
+        ticket.is_used = True
+        ticket.used_at = datetime.utcnow()
+        ticket.verified_by = user_id
+        db.session.commit()
+
+        return jsonify(
+            {
+                "valid": True,
+                "message": "Ticket confirmed successfully",
+                "ticket": ticket.to_dict(),
+            }
+        ), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"confirm_ticket_by_code error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
