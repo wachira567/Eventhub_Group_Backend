@@ -143,7 +143,7 @@ class MpesaService:
 
             # Find the transaction
             transaction = MpesaTransaction.query.filter_by(
-                transaction_id=checkout_request_id
+                checkout_request_id=checkout_request_id
             ).first()
 
             if not transaction:
