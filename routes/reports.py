@@ -76,5 +76,46 @@ def get_reports_overview():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+@reports_bp.route('/analytics', methods=['GET'])
+@jwt_required()
+def get_analytics():
+    """Get analytics data with filtering"""
+    try:
+        user = User.query.get(get_jwt_identity())
+
+        if not user or user.role != UserRole.ADMIN:
+            return jsonify({'error': 'Permission denied'}), 403
+
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        event_type = request.args.get('type', 'all')
+        category_id = request.args.get('category')
+
+        if start_date:
+            start_date = datetime.strptime(start_date, '%Y-%m-%d')
+        if end_date:
+            end_date = datetime.strptime(end_date, '%Y-%m-%d')
+
+        filters = {}
+        if event_type != 'all':
+            filters['is_published'] = event_type == 'published'
+        if category_id:
+            filters['category_id'] = category_id
+
+        return jsonify({
+            'overview': get_overview_stats(start_date, end_date),
+            'revenue': get_revenue_stats(start_date, end_date),
+            'events': get_events_stats(start_date, end_date, filters),
+            'users': get_users_stats(start_date, end_date),
+            'filters_applied': {
+                'start_date': start_date.isoformat() if start_date else None,
+                'end_date': end_date.isoformat() if end_date else None,
+                'type': event_type,
+                'category': category_id
+            }
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
