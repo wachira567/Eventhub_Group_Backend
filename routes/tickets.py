@@ -701,5 +701,187 @@ def initiate_guest_payment():
         db.session.rollback()
         logger.error(f"initiate_guest_payment error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+    
+def create_guest_tickets(transaction):
+    """Create tickets for guest after successful payment - now with secure QR codes"""
+    try:
+        # GUARD: Refuse to process authenticated user transactions as guest
+        if transaction.user_id is not None:
+            logger.error(
+                f"create_guest_tickets: REJECTED - Transaction has user_id={transaction.user_id} but was routed to guest ticket creation. "
+                f"This should not happen. Please check confirm_payment() logic."
+            )
+            return jsonify(
+                {
+                    "error": "Internal error: Authenticated user transaction was incorrectly routed to guest ticket creation. "
+                    "Please contact support or try again."
+                }
+            ), 500
+
+        # Check if this specific transaction has already been processed
+        # We check if the pending ticket linked to this transaction is already COMPLETED
+        if transaction.ticket_id:
+            pending_ticket = db.session.get(Ticket, transaction.ticket_id)
+            if pending_ticket and pending_ticket.payment_status == "COMPLETED":
+                # This transaction was already processed - return existing completed tickets
+                existing_tickets = Ticket.query.filter_by(
+                    event_id=transaction.event_id,
+                    ticket_type_id=transaction.ticket_type_id,
+                    payment_status="COMPLETED",
+                ).all()
+                logger.warning(
+                    f"create_guest_tickets: Transaction {transaction.id} already processed, found {len(existing_tickets)} completed tickets"
+                )
+                return jsonify(
+                    {
+                        "message": "Payment already confirmed",
+                        "transaction_id": transaction.id,
+                        "status": "already_processed",
+                        "tickets": [t.to_dict() for t in existing_tickets],
+                    }
+                ), 200
+
+        event_id = transaction.event_id
+        ticket_type_id = transaction.ticket_type_id
+        quantity = transaction.quantity
+
+        event = db.session.get(Event, event_id)
+        if not event:
+            return jsonify({"error": "Event not found"}), 404
+
+        ticket_type = db.session.get(TicketTypeModel, ticket_type_id)
+        if not ticket_type:
+            return jsonify({"error": "Ticket type not found"}), 404
+
+        # Find the guest ticket using transaction.ticket_id (the correct way)
+        guest_ticket = None
+        if transaction.ticket_id:
+            guest_ticket = db.session.get(Ticket, transaction.ticket_id)
+            logger.info(
+                f"create_guest_tickets: Found ticket by transaction.ticket_id={transaction.ticket_id}"
+            )
+
+        # Fallback: if no ticket_id link, search by event/ticket_type (old method)
+        if not guest_ticket:
+            logger.warning(
+                f"create_guest_tickets: No ticket_id link, using fallback search"
+            )
+            guest_ticket = (
+                Ticket.query.filter_by(
+                    event_id=event_id,
+                    ticket_type_id=ticket_type_id,
+                    is_guest=True,
+                    payment_status="PENDING",
+                )
+                .order_by(Ticket.id.desc())
+                .first()
+            )
+
+        if not guest_ticket:
+            return jsonify({"error": "Guest ticket not found"}), 404
+
+        logger.info(
+            f"create_guest_tickets: Found guest ticket ID={guest_ticket.id}, guest_email={guest_ticket.guest_email}, guest_name={guest_ticket.guest_name}"
+        )
+
+        # Validate that guest email is properly set
+        if not guest_ticket.guest_email or "@" not in guest_ticket.guest_email:
+            logger.error(
+                f"create_guest_tickets: Invalid or missing guest_email: {guest_ticket.guest_email}"
+            )
+            return jsonify(
+                {"error": "Guest email is missing or invalid. Please contact support."}
+            ), 400
+
+        # Get total_price from ticket type
+        total_price = float(ticket_type.price) * quantity
+
+        # Create final tickets with secure QR codes
+        tickets = []
+        for i in range(quantity):
+            # First create the ticket to get its ID
+            ticket = Ticket(
+                user_id=None,  # Guest - no user account
+                event_id=event_id,
+                ticket_type_id=ticket_type_id,
+                ticket_number=f"TEMP-{i + 1}",
+                qr_code="",
+                qr_data="",
+                total_price=total_price,
+                payment_status="COMPLETED",
+                is_guest=True,
+                guest_email=guest_ticket.guest_email,
+                guest_name=guest_ticket.guest_name,
+            )
+            db.session.add(ticket)
+            db.session.flush()  # Get the ticket ID without committing
+
+            # Now generate secure QR data with the actual ticket ID
+            qr_data = generate_secure_qr_data(ticket.id)
+            qr_code = generate_qr_code(qr_data)
+
+            logger.info(
+                f"create_guest_tickets: Generated QR for ticket {ticket.id}: {qr_data}"
+            )
+
+            # Update ticket with QR code
+            ticket.ticket_number = qr_data[:16].upper()
+            ticket.qr_code = qr_code
+            ticket.qr_data = qr_data
+
+            tickets.append(ticket)
+
+        # Update ticket type sold quantity
+        ticket_type.sold_quantity += quantity
+
+        # Update transaction status
+        transaction.status = "COMPLETED"
+
+        # Mark guest ticket as completed/failed
+        guest_ticket.payment_status = "COMPLETED"
+
+        db.session.commit()
+
+        # Generate PDF and send email to guest
+        try:
+            pdf_buffer = generate_ticket_pdf(tickets[0], ticket_type, event, None)
+
+            # Send confirmation email with PDF
+            email_sent = send_ticket_with_pdf(
+                user_email=guest_ticket.guest_email,
+                user_name=guest_ticket.guest_name,
+                event_title=event.title,
+                ticket_number=tickets[0].ticket_number,
+                quantity=quantity,
+                total_price=float(transaction.amount),
+                pdf_buffer=pdf_buffer,
+            )
+
+            if email_sent:
+                logger.info(
+                    f"Guest ticket confirmation email sent to {guest_ticket.guest_email}"
+                )
+            else:
+                logger.warning(
+                    f"Failed to send guest ticket email to {guest_ticket.guest_email}"
+                )
+
+        except Exception as email_error:
+            logger.error(f"Error sending guest ticket email: {str(email_error)}")
+            # Don't fail the transaction if email fails
+
+        return jsonify(
+            {
+                "message": "Payment successful! Your tickets are ready. Check your email for the ticket PDF.",
+                "tickets": [ticket.to_dict() for ticket in tickets],
+                "email_sent": email_sent if "email_sent" in dir() else False,
+            }
+        ), 201
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"create_guest_tickets error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+    
 
 
