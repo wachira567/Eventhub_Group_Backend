@@ -1277,4 +1277,64 @@ def create_tickets(transaction):
 @tickets_bp.route("/my-tickets", methods=["GET"])
 @jwt_required()    
 
+def get_my_tickets():
+    """Get current user's tickets"""
+    try:
+        user_id = get_jwt_identity()
+        status = request.args.get("status", "").strip()
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 12, type=int)
+
+        query = Ticket.query.filter_by(user_id=user_id)
+
+        if status:
+            query = query.filter(Ticket.payment_status == status)
+
+        pagination = query.order_by(Ticket.purchased_at.desc()).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+
+        # Include event data with each ticket
+        tickets_with_events = []
+        for ticket in pagination.items:
+            ticket_dict = ticket.to_dict()
+            # Fetch event data
+            event = db.session.get(Event, ticket.event_id)
+            if event:
+                ticket_dict["event"] = {
+                    "id": event.id,
+                    "title": event.title,
+                    "start_date": event.start_date.isoformat()
+                    if event.start_date
+                    else None,
+                    "end_date": event.end_date.isoformat() if event.end_date else None,
+                    "venue": event.venue,
+                    "location": event.venue,  # For compatibility with frontend
+                    "image_url": event.image_url,
+                }
+            else:
+                ticket_dict["event"] = None
+
+            # Fetch ticket type name
+            ticket_type = db.session.get(TicketTypeModel, ticket.ticket_type_id)
+            if ticket_type:
+                ticket_dict["ticket_type_name"] = ticket_type.name
+            else:
+                ticket_dict["ticket_type_name"] = "Ticket"
+
+            tickets_with_events.append(ticket_dict)
+
+        return jsonify(
+            {
+                "tickets": tickets_with_events,
+                "total": pagination.total,
+                "pages": pagination.pages,
+                "current_page": page,
+            }
+        ), 200
+
+    except Exception as e:
+        logger.error(f"get_my_tickets error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
 
