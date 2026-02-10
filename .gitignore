@@ -69,5 +69,3 @@ instance/
 # Temporary files
 *.tmp
 *.bak
-
-group.md
