@@ -648,16 +648,27 @@ def initiate_guest_payment():
             )
             return jsonify({"error": "Ticket is not pending payment"}), 400
 
-        # Find the pending transaction for this guest ticket
+        # Find the pending transaction for this guest ticket - use ticket_id for precise lookup
         transaction = (
             MpesaTransaction.query.filter_by(
-                event_id=ticket.event_id,
-                ticket_type_id=ticket.ticket_type_id,
+                ticket_id=ticket.id,
                 status="PENDING",
             )
             .order_by(MpesaTransaction.id.desc())
             .first()
         )
+        
+        # Fallback: if no transaction found with ticket_id, search by event/ticket_type
+        if not transaction:
+            transaction = (
+                MpesaTransaction.query.filter_by(
+                    event_id=ticket.event_id,
+                    ticket_type_id=ticket.ticket_type_id,
+                    status="PENDING",
+                )
+                .order_by(MpesaTransaction.id.desc())
+                .first()
+            )
 
         if not transaction:
             logger.warning(
