@@ -1,6 +1,3 @@
-
-
-
 """
 Reviews Routes
 """

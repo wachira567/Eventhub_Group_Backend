@@ -22,6 +22,7 @@ from reportlab.platypus import (
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
+
 def generate_ticket_pdf_buffer(ticket, event, ticket_type, user=None):
     """Generate a PDF ticket and return as BytesIO buffer"""
     buffer = io.BytesIO()
@@ -156,6 +157,7 @@ def generate_ticket_pdf_buffer(ticket, event, ticket_type, user=None):
         HRFlowable(width="100%", thickness=1, color=colors.HexColor("#E5E5E5"))
     )
     elements.append(Spacer(1, 20))
+
     # Event Details
     elements.append(Paragraph("EVENT DETAILS", label_style))
     elements.append(Spacer(1, 10))
@@ -259,6 +261,7 @@ def generate_ticket_pdf_buffer(ticket, event, ticket_type, user=None):
     elements.append(Spacer(1, 5))
     elements.append(Paragraph(f"Purchased on: {purchase_date}", label_style))
     elements.append(Spacer(1, 30))
+
     # Footer
     elements.append(
         HRFlowable(width="100%", thickness=1, color=colors.HexColor("#E5E5E5"))
@@ -333,4 +336,3 @@ def generate_tickets_pdf(event, tickets, user=None):
     doc.build(elements)
     buffer.seek(0)
     return buffer.getvalue()
-

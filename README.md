@@ -37,7 +37,6 @@ A Flask-based backend for an event ticketing and management platform built with 
 
 ---
 
-
 ## 📁 Project Structure
 
 ```
@@ -67,7 +66,6 @@ backend_group/
 ```
 
 ---
-
 
 ## 🚀 Getting Started
 
@@ -117,7 +115,6 @@ PIPENV_IGNORE_VIRTUALENVS=1 pipenv run flask run --debug --host 0.0.0.0 --port 5
 The server will start at `http://localhost:5000`
 
 ---
-
 
 ## 📡 API Endpoints
 
@@ -201,7 +198,6 @@ The server will start at `http://localhost:5000`
 
 ---
 
-
 ## 💳 M-Pesa Integration
 
 The platform integrates with M-Pesa for mobile payments in Kenya.
@@ -228,7 +224,6 @@ Use the simulation endpoints for testing:
 
 ---
 
-
 ## 📧 Email Service
 
 The system sends transactional emails for:
@@ -248,7 +243,6 @@ MAIL_PASSWORD=your_app_password
 
 ---
 
-
 ## 🧪 Testing
 
 ```bash
@@ -260,7 +254,6 @@ pipenv run python test_endpoints.py
 ```
 
 ---
-
 
 ## 🔧 Environment Variables
 
@@ -275,7 +268,6 @@ pipenv run python test_endpoints.py
 | `MPESA_*` | M-Pesa configuration | See above |
 
 ---
-
 
 ## 📝 Database Models
 
@@ -293,7 +285,6 @@ pipenv run python test_endpoints.py
 
 ---
 
-
 ## 🔐 Authentication
 
 The API uses JWT (JSON Web Tokens) for authentication.
@@ -310,7 +301,6 @@ Roles:
 - **admin** - Platform administrators
 
 ---
-
 
 ## 📄 License
 
