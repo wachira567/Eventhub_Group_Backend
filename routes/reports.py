@@ -276,6 +276,57 @@ def get_revenue_stats(start_date=None, end_date=None):
         'average_transaction': total / len(txs) if txs else 0,
         'daily_breakdown': daily
     }
+def get_events_stats(start_date=None, end_date=None, filters=None):
+    query = Event.query
+    if filters:
+        query = query.filter_by(**filters)
+    if start_date:
+        query = query.filter(Event.start_date >= start_date)
+    if end_date:
+        query = query.filter(Event.start_date <= end_date)
+
+    events = query.all()
+    stats = []
+
+    for e in events:
+        ticket_types = TicketTypeModel.query.filter_by(event_id=e.id).all()
+        total = sum(t.quantity for t in ticket_types)
+        sold = sum(t.sold_quantity for t in ticket_types)
+        revenue = sum(t.sold_quantity * float(t.price) for t in ticket_types)
+
+        stats.append({
+            'id': e.id,
+            'title': e.title,
+            'total_tickets': total,
+            'sold_tickets': sold,
+            'revenue': revenue
+        })
+
+    return {
+        'total_events': len(events),
+        'event_details': stats,
+        'total_tickets_sold': sum(s['sold_tickets'] for s in stats),
+        'total_revenue': sum(s['revenue'] for s in stats)
+    }
+
+
+def get_users_stats(start_date=None, end_date=None):
+    users = User.query.all()
+
+    roles = {}
+    for u in users:
+        role = u.role.value if hasattr(u.role, 'value') else u.role
+        roles[role] = roles.get(role, 0) + 1
+
+    active_users = len(set(t.user_id for t in Ticket.query.filter_by(payment_status='COMPLETED').all()))
+    verified = User.query.filter_by(is_verified=True).count()
+
+    return {
+        'total_users': len(users),
+        'role_distribution': roles,
+        'active_users': active_users,
+        'verification_rate': (verified / len(users) * 100) if users else 0
+    }
 
 
 
