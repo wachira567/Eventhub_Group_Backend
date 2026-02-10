@@ -59,4 +59,22 @@ def generate_report():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    @reports_bp.route('/overview', methods=['GET'])
+@jwt_required()
+def get_reports_overview():
+    """Get overview statistics for reports page"""
+    try:
+        user = User.query.get(get_jwt_identity())
+
+        if user.role != UserRole.ADMIN:
+            return jsonify({'error': 'Permission denied'}), 403
+
+        return jsonify({
+            'overview': get_overview_stats(),
+            'recent_reports': get_recent_reports()
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
