@@ -259,4 +259,78 @@ def generate_ticket_pdf_buffer(ticket, event, ticket_type, user=None):
     elements.append(Spacer(1, 5))
     elements.append(Paragraph(f"Purchased on: {purchase_date}", label_style))
     elements.append(Spacer(1, 30))
+    # Footer
+    elements.append(
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor("#E5E5E5"))
+    )
+    elements.append(Spacer(1, 10))
+
+    footer_style = ParagraphStyle(
+        "Footer",
+        parent=styles["Normal"],
+        fontSize=9,
+        textColor=colors.HexColor("#6F7287"),
+        alignment=TA_CENTER,
+    )
+
+    elements.append(
+        Paragraph(
+            "Present this ticket at the event entrance for scanning and verification.",
+            footer_style,
+        )
+    )
+    elements.append(Spacer(1, 5))
+    elements.append(
+        Paragraph(
+            "This ticket is non-transferable and can only be used once.", footer_style
+        )
+    )
+    elements.append(Spacer(1, 5))
+    elements.append(
+        Paragraph("For support, contact support@eventhub.com", footer_style)
+    )
+
+    doc.build(elements)
+    buffer.seek(0)
+
+    return buffer
+
+
+def generate_ticket_pdf(ticket, ticket_type, event, user=None):
+    """Generate ticket PDF and return bytes (for backward compatibility)"""
+    buffer = generate_ticket_pdf_buffer(ticket, event, ticket_type, user)
+    return buffer.getvalue()
+
+
+def generate_tickets_pdf(event, tickets, user=None):
+    """Generate PDF with multiple tickets"""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=20 * mm,
+        leftMargin=20 * mm,
+        topMargin=20 * mm,
+        bottomMargin=20 * mm,
+    )
+    
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Add each ticket
+    for ticket in tickets:
+        ticket_type = None
+        for tt in event.ticket_types:
+            if tt.id == ticket.ticket_type_id:
+                ticket_type = tt
+                break
+        if not ticket_type:
+            continue
+        
+        elements.append(Paragraph(f"Ticket: {ticket.ticket_code}", styles["Heading2"]))
+        elements.append(Spacer(1, 20))
+    
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer.getvalue()
 
