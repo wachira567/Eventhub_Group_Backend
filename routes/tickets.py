@@ -215,7 +215,7 @@ def debug_qr_test():
 def debug_regenerate_qr(ticket_id):
     """Debug endpoint to regenerate QR code for a ticket"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
 
         if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
@@ -256,7 +256,7 @@ def purchase_ticket():
         is_authenticated = False
         try:
             verify_jwt_in_request()
-            user_id = get_jwt_identity()
+            user_id = int(get_jwt_identity())
             is_authenticated = True
         except Exception as e:
             # No valid JWT - this is a guest purchase
@@ -389,7 +389,7 @@ def initiate_payment_for_reservation():
     """Initiate payment for an existing reservation"""
     logger.info("=== initiate_payment_for_reservation: Function entered ===")
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         logger.info(f"initiate_payment: user_id={user_id}")
 
         data = request.get_json()
@@ -1279,7 +1279,7 @@ def create_tickets(transaction):
 def get_my_tickets():
     """Get current user's tickets"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         status = request.args.get("status", "").strip()
         page = request.args.get("page", 1, type=int)
         per_page = request.args.get("per_page", 12, type=int)
@@ -1342,7 +1342,7 @@ def get_my_tickets():
 def get_all_tickets():
     """Get all tickets for admin"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
 
         if not user or user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
@@ -1379,7 +1379,7 @@ def get_all_tickets():
 def get_ticket(ticket_id):
     """Get single ticket details"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         ticket = Ticket.query.get_or_404(ticket_id)
 
         if ticket.user_id != user_id:
@@ -1433,7 +1433,7 @@ def download_ticket_pdf(ticket_id):
             # For authenticated users, require JWT
             from flask_jwt_extended import jwt_required, get_jwt_identity
 
-            user_id = get_jwt_identity()
+            user_id = int(get_jwt_identity())
 
             if ticket.user_id != user_id:
                 return jsonify({"error": "Permission denied"}), 403
@@ -1489,7 +1489,7 @@ def get_ticket_qr(ticket_id):
 def verify_ticket():
     """Verify a ticket (for organizers) - now with secure QR verification"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
 
         if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
@@ -1581,7 +1581,7 @@ def verify_ticket():
 def cancel_ticket(ticket_id):
     """Cancel a ticket (refund process)"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         ticket = Ticket.query.get_or_404(ticket_id)
 
         if ticket.user_id != user_id:
@@ -1615,7 +1615,7 @@ def cancel_ticket(ticket_id):
 def get_event_tickets(event_id):
     """Get all tickets for an event (organizer only)"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
 
         event = Event.query.get_or_404(event_id)
@@ -1659,7 +1659,7 @@ def get_event_tickets(event_id):
 def scan_ticket(event_id):
     """Scan and verify ticket at event entry - now with secure QR verification"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
 
         if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
@@ -1741,7 +1741,7 @@ def scan_ticket(event_id):
 def get_ticket_stats(event_id):
     """Get ticket statistics for an event"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
 
         event = Event.query.get_or_404(event_id)
@@ -1783,7 +1783,7 @@ def get_ticket_stats(event_id):
 def search_event_tickets(event_id):
     """Search tickets for an event by phone, email, or ticket number"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
 
         event = Event.query.get_or_404(event_id)
@@ -1882,7 +1882,7 @@ def debug_list_used_tickets(event_id):
 def confirm_ticket_by_code():
     """Confirm ticket entry by ticket number (for manual/backup verification)"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
 
         if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:

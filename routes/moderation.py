@@ -26,7 +26,7 @@ def get_pending_events():
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
@@ -61,7 +61,7 @@ def get_event_for_moderation(event_id):
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
@@ -91,7 +91,7 @@ def approve_event(event_id):
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
@@ -143,7 +143,7 @@ def reject_event(event_id):
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
@@ -197,7 +197,7 @@ def get_moderation_stats():
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
@@ -235,7 +235,7 @@ def request_event_changes(event_id):
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:

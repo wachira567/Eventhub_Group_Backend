@@ -291,7 +291,7 @@ def login():
 def refresh_token():
     """Refresh access token"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
 
         if not user:
@@ -310,7 +310,7 @@ def refresh_token():
 def get_current_user():
     """Get current user profile"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
 
         if not user:
@@ -334,7 +334,7 @@ def logout():
 def change_password():
     """Change user password"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         data = request.get_json()
 
         current_password = data.get("current_password", "")
@@ -553,7 +553,7 @@ def verify_reset_token():
 def update_profile():
     """Update user profile"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         data = request.get_json()
 
         user = User.query.get(user_id)
@@ -634,7 +634,7 @@ def update_profile():
 def organizer_profile():
     """Get or update organizer profile"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
 
         if not user:

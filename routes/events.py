@@ -128,7 +128,7 @@ def get_event(event_id):
 def create_event():
     """Create a new event"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if not user:
@@ -251,7 +251,7 @@ def create_event():
 def update_event(event_id):
     """Update an event"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         event = Event.query.get_or_404(event_id)
@@ -355,7 +355,7 @@ def update_event(event_id):
 def delete_event(event_id):
     """Delete an event"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         event = Event.query.get_or_404(event_id)
@@ -381,7 +381,7 @@ def delete_event(event_id):
 def save_event(event_id):
     """Save an event to user's saved list"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         event = Event.query.get_or_404(event_id)
         
         existing = SavedEvent.query.filter_by(user_id=user_id, event_id=event_id).first()
@@ -404,7 +404,7 @@ def save_event(event_id):
 def unsave_event(event_id):
     """Remove event from user's saved list"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         saved = SavedEvent.query.filter_by(user_id=user_id, event_id=event_id).first_or_404()
         
         db.session.delete(saved)
@@ -422,7 +422,7 @@ def unsave_event(event_id):
 def get_saved_events():
     """Get user's saved events"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 12, type=int)
         
@@ -479,7 +479,7 @@ def get_event_reviews(event_id):
 def create_event_review(event_id):
     """Create a review for an event"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if not user.is_verified:
@@ -529,7 +529,7 @@ def create_event_review(event_id):
 def get_my_events():
     """Get events created by current user"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:

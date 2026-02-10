@@ -26,7 +26,7 @@ def get_platform_analytics():
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role != UserRole.ADMIN:
@@ -81,7 +81,7 @@ def get_platform_analytics():
 def get_organizer_analytics():
     """Get analytics for current organizer"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role not in [UserRole.ADMIN, UserRole.ORGANIZER]:
@@ -156,7 +156,7 @@ def get_event_analytics(event_id):
     try:
         # Manually verify JWT token
         verify_jwt_in_request()
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         event = Event.query.get_or_404(event_id)
@@ -225,7 +225,7 @@ def get_sales_timeline(event_id):
     try:
         # Manually verify JWT token
         verify_jwt_in_request()
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         event = Event.query.get_or_404(event_id)
@@ -270,7 +270,7 @@ def get_event_attendees(event_id):
     try:
         # Manually verify JWT token
         verify_jwt_in_request()
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         event = Event.query.get_or_404(event_id)

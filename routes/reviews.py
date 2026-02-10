@@ -73,7 +73,7 @@ def get_review(review_id):
 def update_review(review_id):
     """Update a review"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         review = EventReview.query.get_or_404(review_id)
         
         if review.user_id != user_id:
@@ -108,7 +108,7 @@ def update_review(review_id):
 def delete_review(review_id):
     """Delete a review"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         review = EventReview.query.get_or_404(review_id)
         

@@ -20,7 +20,7 @@ export_bp = Blueprint('export', __name__)
 def export_event_tickets_csv(event_id):
     """Export event tickets as CSV"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         event = Event.query.get_or_404(event_id)
@@ -74,7 +74,7 @@ def export_event_tickets_csv(event_id):
 def export_event_attendees_csv(event_id):
     """Export event attendees as CSV"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         event = Event.query.get_or_404(event_id)
@@ -140,7 +140,7 @@ def export_event_attendees_csv(event_id):
 def export_event_tickets_pdf(event_id):
     """Export event tickets as PDF"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         event = Event.query.get_or_404(event_id)
@@ -171,7 +171,7 @@ def export_event_tickets_pdf(event_id):
 def export_my_tickets_pdf(event_id):
     """Export user's tickets for an event as PDF"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         event = Event.query.get_or_404(event_id)

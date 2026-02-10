@@ -22,7 +22,7 @@ reports_bp = Blueprint('reports', __name__)
 def generate_report():
     """Generate a PDF report based on type and date range"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role not in [UserRole.ADMIN]:
@@ -71,7 +71,7 @@ def generate_report():
 def get_reports_overview():
     """Get overview statistics for reports page"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role not in [UserRole.ADMIN]:
@@ -91,7 +91,7 @@ def get_reports_overview():
 def get_analytics():
     """Get analytics data with filtering"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if not user or (user.role != UserRole.ADMIN and str(user.role) != 'ADMIN'):
@@ -145,7 +145,7 @@ def get_analytics():
 def export_events_report():
     """Export events data with detailed stats"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if not user or (user.role != UserRole.ADMIN and str(user.role) != 'ADMIN'):
@@ -207,7 +207,7 @@ def export_events_report():
 def export_users_report():
     """Export users data with detailed stats"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if not user or (user.role != UserRole.ADMIN and str(user.role) != 'ADMIN'):
@@ -251,7 +251,7 @@ def export_users_report():
 def export_tickets_report():
     """Export tickets data as CSV"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if user.role not in [UserRole.ADMIN]:

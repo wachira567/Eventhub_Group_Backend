@@ -20,7 +20,7 @@ def get_users():
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        current_user_id = get_jwt_identity()
+        current_user_id = int(get_jwt_identity())
         current_user = User.query.get(current_user_id)
         
         if current_user.role not in [UserRole.ADMIN]:
@@ -82,7 +82,7 @@ def get_recent_users():
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        current_user_id = get_jwt_identity()
+        current_user_id = int(get_jwt_identity())
         current_user = User.query.get(current_user_id)
         
         if current_user.role not in [UserRole.ADMIN]:
@@ -110,7 +110,7 @@ def get_user(user_id):
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        current_user_id = get_jwt_identity()
+        current_user_id = int(get_jwt_identity())
         current_user = User.query.get(current_user_id)
         
         user = User.query.get_or_404(user_id)
@@ -131,7 +131,7 @@ def update_user(user_id):
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        current_user_id = get_jwt_identity()
+        current_user_id = int(get_jwt_identity())
         current_user = User.query.get(current_user_id)
         
         user = User.query.get_or_404(user_id)
@@ -181,7 +181,7 @@ def deactivate_user(user_id):
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        current_user_id = get_jwt_identity()
+        current_user_id = int(get_jwt_identity())
         current_user = User.query.get(current_user_id)
         
         if current_user.role not in [UserRole.ADMIN]:
@@ -210,7 +210,7 @@ def activate_user(user_id):
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        current_user_id = get_jwt_identity()
+        current_user_id = int(get_jwt_identity())
         current_user = User.query.get(current_user_id)
         
         if current_user.role not in [UserRole.ADMIN]:
@@ -286,7 +286,7 @@ def get_user_stats():
     try:
         # Explicitly verify JWT before getting identity
         verify_jwt_in_request()
-        current_user_id = get_jwt_identity()
+        current_user_id = int(get_jwt_identity())
         current_user = User.query.get(current_user_id)
         
         if current_user.role not in [UserRole.ADMIN]:
