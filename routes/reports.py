@@ -327,6 +327,9 @@ def get_users_stats(start_date=None, end_date=None):
         'active_users': active_users,
         'verification_rate': (verified / len(users) * 100) if users else 0
     }
+def get_recent_reports():
+    """Return recently generated reports (placeholder)"""
+    return []
 
 
 
