@@ -19,17 +19,21 @@ def stk_push_callback():
     """Handle M-Pesa STK Push callback"""
     try:
         data = request.get_json()
+        print(f"[MPESA CALLBACK] Raw data: {data}")
         
         result = data.get('Body', {}).get('stkCallback', {})
         result_code = result.get('ResultCode')
         result_desc = result.get('ResultDesc')
         checkout_request_id = result.get('CheckoutRequestID')
         
+        print(f"[MPESA CALLBACK] ResultCode: {result_code}, ResultDesc: {result_desc}, CheckoutRequestID: {checkout_request_id}")
+        
         transaction = MpesaTransaction.query.filter_by(
             checkout_request_id=checkout_request_id
         ).first()
         
         if not transaction:
+            print(f"[MPESA CALLBACK] Transaction not found for checkout_request_id: {checkout_request_id}")
             return jsonify({'error': 'Transaction not found'}), 404
         
         if result_code == 0:
