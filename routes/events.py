@@ -147,3 +147,34 @@ def get_transactions():
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+
+@mpesa_bp.route('/simulate-complete/<path:identifier>', methods=['POST'])
+def simulate_payment_complete(identifier):
+    try:
+        if identifier.isdigit():
+            transaction = MpesaTransaction.query.get(int(identifier))
+        else:
+            transaction = MpesaTransaction.query.filter_by(
+                checkout_request_id=identifier
+            ).first()
+        
+        if not transaction:
+            return jsonify({'error': 'Transaction not found'}), 404
+        
+        transaction.status = 'completed'
+        transaction.mpesa_receipt = f"TEST{transaction.id}{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+        transaction.result_desc = "Payment completed successfully"
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Payment simulated successfully',
+            'transaction': transaction.to_dict(),
+            'status': 'completed'
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+    
