@@ -117,5 +117,47 @@ def get_analytics():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    @reports_bp.route('/events/export', methods=['GET'])
+@jwt_required()
+def export_events_report():
+    """Export events data"""
+    try:
+        user = User.query.get(get_jwt_identity())
+        if user.role != UserRole.ADMIN:
+            return jsonify({'error': 'Permission denied'}), 403
+
+        events = Event.query.all()
+        data = []
+
+        for event in events:
+            ticket_types = TicketTypeModel.query.filter_by(event_id=event.id).all()
+            total_tickets = sum(t.quantity for t in ticket_types)
+            sold_tickets = sum(t.sold_quantity for t in ticket_types)
+            revenue = sum(t.sold_quantity * t.price for t in ticket_types)
+
+            organizer = User.query.get(event.organizer_id)
+            category = Category.query.get(event.category_id)
+
+            data.append({
+                'id': event.id,
+                'title': event.title,
+                'status': event.status.value if hasattr(event.status, 'value') else event.status,
+                'organizer_name': organizer.name if organizer else 'Unknown',
+                'category_name': category.name if category else 'Uncategorized',
+                'total_tickets': total_tickets,
+                'sold_tickets': sold_tickets,
+                'revenue': float(revenue),
+                'occupancy_rate': (sold_tickets / total_tickets * 100) if total_tickets else 0
+            })
+
+        return jsonify({
+            'events': data,
+            'total': len(data),
+            'generated_at': datetime.utcnow().isoformat()
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 
