@@ -160,10 +160,16 @@ def create_app():
         print(f"500 Error: {error}")
         return {'error': 'Internal server error'}, 500
     
+
     # Health check
     @app.route('/api/health')
     def health_check():
         return {'status': 'ok', 'message': 'EventHub API is running'}
+
+    # Root endpoint to prevent 404s
+    @app.route('/')
+    def root():
+        return {'status': 'ok', 'message': 'EventHub Backend is running. Access API at /api'}
 
     # Debug Email Endpoint
     # Debug Email Endpoint
