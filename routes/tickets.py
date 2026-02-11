@@ -1336,7 +1336,7 @@ def get_my_tickets():
     except Exception as e:
         logger.error(f"get_my_tickets error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
-    @tickets_bp.route("", methods=["GET"])
+@tickets_bp.route("", methods=["GET"])
 @jwt_required()
 def get_all_tickets():
     """Get all tickets for admin"""
