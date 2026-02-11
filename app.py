@@ -152,6 +152,7 @@ def create_app():
 
     # Debug Email Endpoint
     # Debug Email Endpoint
+    # Debug Email Endpoint
     @app.route('/api/debug/email', methods=['POST'])
     def debug_email():
         diagnostics = {}
@@ -159,34 +160,46 @@ def create_app():
             from flask_mail import Message
             from extensions import mail
             import socket
-            import ssl
             
             data = request.get_json() or {}
             recipient = data.get('email', os.environ.get('MAIL_USERNAME'))
             
-            # 1. Network Diagnostics
-            smtp_server = app.config.get('MAIL_SERVER')
-            smtp_port = app.config.get('MAIL_PORT')
+            # 1. Advanced Network Diagnostics
+            smtp_server = 'smtp.gmail.com'
+            ports_to_test = [587, 465]
             
-            # DNS Resolution
+            # DNS Resolution (Detailed)
             try:
-                diagnostics['dns_resolution'] = socket.gethostbyname(smtp_server)
+                # Get all addresses (IPv4 and IPv6)
+                addr_info = socket.getaddrinfo(smtp_server, None)
+                unique_ips = set(info[4][0] for info in addr_info)
+                diagnostics['dns_resolution_full'] = list(unique_ips)
             except Exception as e:
-                diagnostics['dns_resolution'] = f"Failed: {str(e)}"
+                diagnostics['dns_resolution_full'] = f"Failed: {str(e)}"
+                unique_ips = []
+
+            # TCP Connection Test for each port and accessible IP
+            diagnostics['connectivity'] = {}
+            
+            for port in ports_to_test:
+                port_results = []
+                for ip in list(unique_ips)[:2]: # Test first 2 IPs only to save time
+                    try:
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        sock.settimeout(3)
+                        result = sock.connect_ex((ip, port))
+                        sock.close()
+                        status = "Success" if result == 0 else f"Failed (errno {result})"
+                        port_results.append(f"{ip}: {status}")
+                    except Exception as e:
+                        port_results.append(f"{ip}: Error {str(e)}")
                 
-            # TCP Connection Test
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(5)
-                sock.connect((smtp_server, smtp_port))
-                sock.close()
-                diagnostics['tcp_connection'] = "Success"
-            except Exception as e:
-                diagnostics['tcp_connection'] = f"Failed: {str(e)}"
+                diagnostics['connectivity'][f'Port {port}'] = port_results
 
             if not recipient:
                 return jsonify({'error': 'No recipient specified and MAIL_USERNAME not set'}), 400
-                
+            
+            # Attempt to send
             msg = Message(
                 subject='EventHub Debug Email',
                 sender=os.environ.get('MAIL_USERNAME'),
@@ -200,8 +213,8 @@ def create_app():
                 'message': f'Test email sent successfully to {recipient}',
                 'diagnostics': diagnostics,
                 'config': {
-                    'server': smtp_server,
-                    'port': smtp_port,
+                    'server': app.config.get('MAIL_SERVER'),
+                    'port': app.config.get('MAIL_PORT'),
                     'use_tls': app.config.get('MAIL_USE_TLS'),
                     'use_ssl': app.config.get('MAIL_USE_SSL'),
                     'username': app.config.get('MAIL_USERNAME'),
