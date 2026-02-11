@@ -148,6 +148,51 @@ def create_app():
     @app.route('/api/health')
     def health_check():
         return {'status': 'ok', 'message': 'EventHub API is running'}
+
+    # Debug Email Endpoint
+    @app.route('/api/debug/email', methods=['POST'])
+    def debug_email():
+        try:
+            from flask_mail import Message
+            from extensions import mail
+            
+            data = request.get_json() or {}
+            recipient = data.get('email', os.environ.get('MAIL_USERNAME'))
+            
+            if not recipient:
+                return jsonify({'error': 'No recipient specified and MAIL_USERNAME not set'}), 400
+                
+            msg = Message(
+                subject='EventHub Debug Email',
+                sender=os.environ.get('MAIL_USERNAME'),
+                recipients=[recipient]
+            )
+            msg.body = "This is a test email from EventHub backend to verify SMTP configuration."
+            
+            mail.send(msg)
+            
+            return jsonify({
+                'message': f'Test email sent successfully to {recipient}',
+                'config': {
+                    'server': app.config.get('MAIL_SERVER'),
+                    'port': app.config.get('MAIL_PORT'),
+                    'use_tls': app.config.get('MAIL_USE_TLS'),
+                    'username': app.config.get('MAIL_USERNAME'),
+                    'has_password': bool(app.config.get('MAIL_PASSWORD'))
+                }
+            }), 200
+        except Exception as e:
+            print(f"Debug Email Error: {e}")
+            return jsonify({
+                'error': str(e),
+                'config': {
+                    'server': app.config.get('MAIL_SERVER'),
+                    'port': app.config.get('MAIL_PORT'),
+                    'use_tls': app.config.get('MAIL_USE_TLS'),
+                    'username': app.config.get('MAIL_USERNAME'),
+                    'has_password': bool(app.config.get('MAIL_PASSWORD'))
+                }
+            }), 500
     
     return app
 
