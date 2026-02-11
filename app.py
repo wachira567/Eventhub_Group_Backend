@@ -10,6 +10,20 @@ from flask_migrate import Migrate
 from dotenv import load_dotenv
 from flask_jwt_extended import JWTManager
 from flask_jwt_extended.exceptions import JWTExtendedException
+import socket
+
+# MONKEY PATCH: Force IPv4
+# Render environment seems to lack IPv6 support, causing "Address family not supported"
+# and "Network is unreachable" errors when smtplib picks the IPv6 address.
+orig_getaddrinfo = socket.getaddrinfo
+
+def getaddrinfo_ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
+    # Force AF_INET (IPv4)
+    family = socket.AF_INET
+    return orig_getaddrinfo(host, port, family, type, proto, flags)
+
+socket.getaddrinfo = getaddrinfo_ipv4_only
+# END MONKEY PATCH
 
 from extensions import db, mail
 
