@@ -621,13 +621,17 @@ def initiate_guest_payment():
             f"initiate_guest_payment: ticket_id={ticket_id}, guest_token present={bool(guest_token)}, phone={phone}"
         )
 
+
         if not ticket_id:
+            logger.error("initiate_guest_payment: Missing ticket_id")
             return jsonify({"error": "Ticket ID is required"}), 400
 
         if not guest_token:
+            logger.error("initiate_guest_payment: Missing guest_token")
             return jsonify({"error": "Guest token is required"}), 400
 
         if not phone:
+            logger.error(f"initiate_guest_payment: Missing phone number. Received data: {data}")
             return jsonify({"error": "Phone number is required"}), 400
 
         ticket = db.session.get(Ticket, ticket_id)
