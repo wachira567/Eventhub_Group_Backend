@@ -151,15 +151,39 @@ def create_app():
         return {'status': 'ok', 'message': 'EventHub API is running'}
 
     # Debug Email Endpoint
+    # Debug Email Endpoint
     @app.route('/api/debug/email', methods=['POST'])
     def debug_email():
+        diagnostics = {}
         try:
             from flask_mail import Message
             from extensions import mail
+            import socket
+            import ssl
             
             data = request.get_json() or {}
             recipient = data.get('email', os.environ.get('MAIL_USERNAME'))
             
+            # 1. Network Diagnostics
+            smtp_server = app.config.get('MAIL_SERVER')
+            smtp_port = app.config.get('MAIL_PORT')
+            
+            # DNS Resolution
+            try:
+                diagnostics['dns_resolution'] = socket.gethostbyname(smtp_server)
+            except Exception as e:
+                diagnostics['dns_resolution'] = f"Failed: {str(e)}"
+                
+            # TCP Connection Test
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(5)
+                sock.connect((smtp_server, smtp_port))
+                sock.close()
+                diagnostics['tcp_connection'] = "Success"
+            except Exception as e:
+                diagnostics['tcp_connection'] = f"Failed: {str(e)}"
+
             if not recipient:
                 return jsonify({'error': 'No recipient specified and MAIL_USERNAME not set'}), 400
                 
@@ -174,9 +198,10 @@ def create_app():
             
             return jsonify({
                 'message': f'Test email sent successfully to {recipient}',
+                'diagnostics': diagnostics,
                 'config': {
-                    'server': app.config.get('MAIL_SERVER'),
-                    'port': app.config.get('MAIL_PORT'),
+                    'server': smtp_server,
+                    'port': smtp_port,
                     'use_tls': app.config.get('MAIL_USE_TLS'),
                     'use_ssl': app.config.get('MAIL_USE_SSL'),
                     'username': app.config.get('MAIL_USERNAME'),
@@ -187,6 +212,7 @@ def create_app():
             print(f"Debug Email Error: {e}")
             return jsonify({
                 'error': str(e),
+                'diagnostics': diagnostics,
                 'config': {
                     'server': app.config.get('MAIL_SERVER'),
                     'port': app.config.get('MAIL_PORT'),
