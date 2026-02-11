@@ -19,3 +19,4 @@ qrcode==7.4.2
 pillow==10.1.0
 werkzeug==3.0.1
 gunicorn
+resend>=0.7.0
