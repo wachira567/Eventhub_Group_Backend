@@ -652,11 +652,13 @@ def initiate_guest_payment():
             )
             return jsonify({"error": "Ticket is not pending payment"}), 400
 
+
         # Find the pending transaction for this guest ticket
+        # CRITICAL FIX: Filter by ticket_id to ensure we get the specific transaction for this user/ticket
+        # failing to do so could cause race conditions where we pick up another guest's transaction
         transaction = (
             MpesaTransaction.query.filter_by(
-                event_id=ticket.event_id,
-                ticket_type_id=ticket.ticket_type_id,
+                ticket_id=ticket.id,
                 status="PENDING",
             )
             .order_by(MpesaTransaction.id.desc())
