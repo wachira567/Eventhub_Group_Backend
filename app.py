@@ -180,7 +180,7 @@ def create_app():
             
             # 1. Advanced Network Diagnostics
             smtp_server = 'smtp.gmail.com'
-            ports_to_test = [587, 465]
+            ports_to_test = [587, 465, 2525]
             
             # DNS Resolution (Detailed)
             try:
