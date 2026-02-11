@@ -242,6 +242,46 @@ def register():
         return jsonify({"error": str(e)}), 500
 
 
+
+@auth_bp.route("/resend-verification", methods=["POST"])
+def resend_verification():
+    """Resend verification email"""
+    try:
+        data = request.get_json()
+        email = data.get("email", "").strip().lower()
+
+        if not email:
+            return jsonify({"error": "Email is required"}), 400
+
+        user = User.query.filter_by(email=email).first()
+
+        if not user:
+            # Don't reveal if user exists
+            return jsonify(
+                {"message": "If an account with this email exists and is not verified, a new verification link has been sent."}
+            ), 200
+
+        if user.is_verified:
+            return jsonify({"message": "Email is already verified. Please log in."}), 400
+
+        # Generate new token
+        verification_token = generate_verification_token()
+        user.email_verification_token = verification_token
+        user.email_verification_expires = datetime.utcnow() + timedelta(hours=24)
+        db.session.commit()
+
+        # Send email
+        send_verification_email(user.email, user.name, verification_token)
+
+        return jsonify(
+            {"message": "If an account with this email exists and is not verified, a new verification link has been sent."}
+        ), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
 @auth_bp.route("/verify-email", methods=["GET", "POST"])
 def verify_email():
     """Verify email using magic link token"""
