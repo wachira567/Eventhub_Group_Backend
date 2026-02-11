@@ -37,10 +37,10 @@ def send_email_via_resend(to_email, subject, html_content, attachments=None):
             params["attachments"] = attachments
 
         email = resend.Emails.send(params)
-        print(f"Email sent successfully to {to_email}. ID: {email.get('id')}")
+        current_app.logger.info(f"Email sent successfully to {to_email}. ID: {email.get('id')}")
         return True
     except Exception as e:
-        print(f"Resend Email Error: {e}")
+        current_app.logger.error(f"Resend Email Error: {e}")
         return False
 
 def send_ticket_confirmation(user_email, user_name, event_title, ticket_number, quantity, total_price):
@@ -124,15 +124,10 @@ def send_ticket_with_pdf(user_email, user_name, event_title, ticket_number, quan
             pdf_buffer.seek(0)
             pdf_data = pdf_buffer.read()
         
-        # Resend expects attachment content as a list of integers (when using SDK directly usually it handles bytes, 
-        # but let's be safe and pass list if bytes fail, or just try bytes first. 
-        # The python SDK accepts bytes directly for 'content'.)
-        # https://github.com/resend/resend-python/blob/main/resend/__init__.py
-        
         attachment_filename = filename or f"ticket_{ticket_number}.pdf"
         attachments.append({
             "filename": attachment_filename,
-            "content": list(pdf_data), # Resend Python SDK often creates issues with raw bytes, converting to list of ints is safer
+            "content": list(pdf_data), 
         })
         
     return send_email_via_resend(user_email, f'Your Ticket for {event_title}', html, attachments)
@@ -236,68 +231,55 @@ def send_event_approval_email(user_email, user_name, event_title, notes=None):
     return send_email_via_resend(user_email, f'🎉 Your Event "{event_title}" Has Been Approved!', html)
 
 
-
 def send_event_rejection_email(user_email, user_name, event_title, reason):
     """Send event rejection notification"""
-    try:
-        from extensions import mail
-        frontend_url = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
-        
-        msg = Message(
-            subject=f'Event Update: "{event_title}" Needs Changes',
-            sender=os.environ.get('MAIL_USERNAME'),
-            recipients=[user_email]
-        )
-        
-        msg.html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .header {{ background: #F05537; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }}
-                .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }}
-                .reason-box {{ background: #fef2f2; border: 1px solid #fecaca; padding: 20px; border-radius: 8px; margin: 20px 0; }}
-                .button {{ display: inline-block; background: #F05537; color: white; padding: 15px 30px; 
-                          text-decoration: none; border-radius: 4px; margin: 20px 0; font-weight: bold; }}
-                .footer {{ text-align: center; margin-top: 30px; color: #666; font-size: 12px; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>⚠️ Action Required</h1>
+    frontend_url = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: #F05537; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }}
+            .reason-box {{ background: #fef2f2; border: 1px solid #fecaca; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+            .button {{ display: inline-block; background: #F05537; color: white; padding: 15px 30px; 
+                      text-decoration: none; border-radius: 4px; margin: 20px 0; font-weight: bold; }}
+            .footer {{ text-align: center; margin-top: 30px; color: #666; font-size: 12px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>⚠️ Action Required</h1>
+            </div>
+            <div class="content">
+                <p>Hi {user_name},</p>
+                <p>Thank you for submitting your event <strong>"{event_title}"</strong> for review.</p>
+                <p>Our moderation team has reviewed your submission and would like you to make some changes before it can be approved.</p>
+                
+                <div class="reason-box">
+                    <p style="margin: 0 0 10px;"><strong>Please review the following:</strong></p>
+                    <p style="margin: 0;">{reason}</p>
                 </div>
-                <div class="content">
-                    <p>Hi {user_name},</p>
-                    <p>Thank you for submitting your event <strong>"{event_title}"</strong> for review.</p>
-                    <p>Our moderation team has reviewed your submission and would like you to make some changes before it can be approved.</p>
-                    
-                    <div class="reason-box">
-                        <p style="margin: 0 0 10px;"><strong>Please review the following:</strong></p>
-                        <p style="margin: 0;">{reason}</p>
-                    </div>
-                    
-                    <p>Please make the necessary changes and resubmit your event for review.</p>
-                    <center>
-                        <a href="{frontend_url}/organizer/events" class="button">Edit Your Event</a>
-                    </center>
-                    
-                    <p style="margin-top: 20px;">If you have any questions about the feedback, please don't hesitate to contact us.</p>
-                    
-                    <div class="footer">
-                        <p>Need help? Contact us at support@eventhub.com</p>
-                        <p>&copy; 2026 EventHub. All rights reserved.</p>
-                    </div>
+                
+                <p>Please make the necessary changes and resubmit your event for review.</p>
+                <center>
+                    <a href="{frontend_url}/organizer/events" class="button">Edit Your Event</a>
+                </center>
+                
+                <p style="margin-top: 20px;">If you have any questions about the feedback, please don't hesitate to contact us.</p>
+                
+                <div class="footer">
+                    <p>Need help? Contact us at support@eventhub.com</p>
+                    <p>&copy; 2026 EventHub. All rights reserved.</p>
                 </div>
             </div>
-        </body>
-        </html>
-        """
-        
-        mail.send(msg)
-        return True
-    except Exception as e:
-        print(f"Email error: {e}")
-        return False
+        </div>
+    </body>
+    </html>
+    """
+    
+    return send_email_via_resend(user_email, f'Event Update: "{event_title}" Needs Changes', html)
