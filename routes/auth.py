@@ -23,6 +23,9 @@ from flask_mail import Message
 auth_bp = Blueprint("auth", __name__)
 
 
+
+from services.email_service import send_email_via_resend
+
 def generate_verification_token():
     """Generate a secure random token for email verification"""
     return secrets.token_urlsafe(32)
@@ -34,13 +37,9 @@ def send_verification_email(user_email, user_name, verification_token):
         frontend_url = current_app.config.get("FRONTEND_URL", "http://localhost:5173")
         verification_url = f"{frontend_url}/verify-email?token={verification_token}"
 
-        msg = Message(
-            subject="Verify Your Email - EventHub",
-            sender=current_app.config.get("MAIL_USERNAME"),
-            recipients=[user_email],
-        )
-
-        msg.html = f"""
+        subject = "Verify Your Email - EventHub"
+        
+        html = f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -81,10 +80,70 @@ def send_verification_email(user_email, user_name, verification_token):
         </html>
         """
 
-        mail.send(msg)
-        return True
+        return send_email_via_resend(user_email, subject, html)
     except Exception as e:
         print(f"Verification email error: {e}")
+        return False
+
+
+def send_password_reset_email(user_email, user_name, reset_token):
+    """Send password reset magic link"""
+    try:
+        frontend_url = current_app.config.get("FRONTEND_URL", "http://localhost:5173")
+        reset_url = f"{frontend_url}/reset-password?token={reset_token}"
+        
+        subject = "Reset Your Password - EventHub"
+
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background: #F05537; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }}
+                .button {{ display: inline-block; background: #F05537; color: white; padding: 15px 30px; 
+                          text-decoration: none; border-radius: 4px; margin: 20px 0; font-weight: bold; }}
+                .footer {{ text-align: center; margin-top: 30px; color: #666; font-size: 12px; }}
+                .link {{ color: #F05537; word-break: break-all; }}
+                .warning {{ background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 4px; margin: 15px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🔐 Password Reset</h1>
+                </div>
+                <div class="content">
+                    <p>Hi {user_name},</p>
+                    <p>We received a request to reset your password. Click the button below to create a new password:</p>
+                    <center>
+                        <a href="{reset_url}" class="button">Reset My Password</a>
+                    </center>
+                    <p>Or copy and paste this link into your browser:</p>
+                    <p class="link">{reset_url}</p>
+                    
+                    <div class="warning">
+                        <p><strong>This link will expire in 1 hour for security purposes.</strong></p>
+                        <p>If you didn't request a password reset, you can safely ignore this email.</p>
+                    </div>
+                    
+                    <p>For security, if you didn't make this request, please contact us immediately.</p>
+                    
+                    <div class="footer">
+                        <p>Need help? Contact us at support@eventhub.com</p>
+                        <p>&copy; 2026 EventHub. All rights reserved.</p>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        return send_email_via_resend(user_email, subject, html)
+    except Exception as e:
+        print(f"Password reset email error: {e}")
         return False
 
 
@@ -358,70 +417,7 @@ def change_password():
         return jsonify({"error": str(e)}), 500
 
 
-def send_password_reset_email(user_email, user_name, reset_token):
-    """Send password reset magic link"""
-    try:
-        frontend_url = current_app.config.get("FRONTEND_URL", "http://localhost:5173")
-        reset_url = f"{frontend_url}/reset-password?token={reset_token}"
 
-        msg = Message(
-            subject="Reset Your Password - EventHub",
-            sender=current_app.config.get("MAIL_USERNAME"),
-            recipients=[user_email],
-        )
-
-        msg.html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .header {{ background: #F05537; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
-                .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }}
-                .button {{ display: inline-block; background: #F05537; color: white; padding: 15px 30px; 
-                          text-decoration: none; border-radius: 4px; margin: 20px 0; font-weight: bold; }}
-                .footer {{ text-align: center; margin-top: 30px; color: #666; font-size: 12px; }}
-                .link {{ color: #F05537; word-break: break-all; }}
-                .warning {{ background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 4px; margin: 15px 0; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🔐 Password Reset</h1>
-                </div>
-                <div class="content">
-                    <p>Hi {user_name},</p>
-                    <p>We received a request to reset your password. Click the button below to create a new password:</p>
-                    <center>
-                        <a href="{reset_url}" class="button">Reset My Password</a>
-                    </center>
-                    <p>Or copy and paste this link into your browser:</p>
-                    <p class="link">{reset_url}</p>
-                    
-                    <div class="warning">
-                        <p><strong>This link will expire in 1 hour for security purposes.</strong></p>
-                        <p>If you didn't request a password reset, you can safely ignore this email.</p>
-                    </div>
-                    
-                    <p>For security, if you didn't make this request, please contact us immediately.</p>
-                    
-                    <div class="footer">
-                        <p>Need help? Contact us at support@eventhub.com</p>
-                        <p>&copy; 2026 EventHub. All rights reserved.</p>
-                    </div>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-
-        mail.send(msg)
-        return True
-    except Exception as e:
-        print(f"Password reset email error: {e}")
-        return False
 
 
 @auth_bp.route("/forgot-password", methods=["POST"])
