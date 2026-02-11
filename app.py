@@ -178,6 +178,7 @@ def create_app():
                     'server': app.config.get('MAIL_SERVER'),
                     'port': app.config.get('MAIL_PORT'),
                     'use_tls': app.config.get('MAIL_USE_TLS'),
+                    'use_ssl': app.config.get('MAIL_USE_SSL'),
                     'username': app.config.get('MAIL_USERNAME'),
                     'has_password': bool(app.config.get('MAIL_PASSWORD'))
                 }
@@ -190,6 +191,7 @@ def create_app():
                     'server': app.config.get('MAIL_SERVER'),
                     'port': app.config.get('MAIL_PORT'),
                     'use_tls': app.config.get('MAIL_USE_TLS'),
+                    'use_ssl': app.config.get('MAIL_USE_SSL'),
                     'username': app.config.get('MAIL_USERNAME'),
                     'has_password': bool(app.config.get('MAIL_PASSWORD'))
                 }
