@@ -653,44 +653,79 @@ def initiate_guest_payment():
             return jsonify({"error": "Ticket is not pending payment"}), 400
 
 
-        # Find the pending transaction for this guest ticket
-        # CRITICAL FIX: Filter by ticket_id to ensure we get the specific transaction for this user/ticket
-        # failing to do so could cause race conditions where we pick up another guest's transaction
+        # Find the latest transaction for this guest ticket (regardless of status)
         transaction = (
             MpesaTransaction.query.filter_by(
-                ticket_id=ticket.id,
-                status="PENDING",
+                ticket_id=ticket.id
             )
             .order_by(MpesaTransaction.id.desc())
             .first()
         )
 
-        if not transaction:
-            logger.warning(
-                f"initiate_guest_payment: No pending transaction found for ticket {ticket_id}"
-            )
-            return jsonify({"error": "No pending transaction found"}), 400
+        # If we have a transaction, check its status
+        if transaction:
+            if transaction.status == "COMPLETED":
+                 return jsonify({"message": "Payment already completed", "status": "completed"}), 200
+            
+            # If PENDING, we can update it (or should we cancel it if it's old?)
+            # For now, let's reuse if pending
+            if transaction.status == "PENDING":
+                 transaction.phone_number = phone
+                 db.session.commit()
+                 
+                 ticket_type = db.session.get(TicketTypeModel, ticket.ticket_type_id)
+                 if not ticket_type:
+                    logger.error(
+                        f"initiate_guest_payment: Ticket type not found: {ticket.ticket_type_id}"
+                    )
+                    return jsonify({"error": "Ticket type not found"}), 400
 
-        # Update transaction with phone (keep user_id as NULL for guests)
-        transaction.phone_number = phone
-        # Don't set user_id - keep it NULL for guests
-        db.session.commit()
+                 total_price = float(ticket_type.price) * ticket.quantity
+                 
+                 logger.info(
+                    f"initiate_guest_payment: Reusing PENDING transaction {transaction.id} for ticket {ticket.id}"
+                 )
 
+                 return initiate_mpesa_payment(
+                    None,
+                    ticket.event_id,
+                    ticket.ticket_type_id,
+                    ticket.quantity,
+                    total_price,
+                    phone,
+                    transaction.id,
+                )
+
+        # If no transaction OR latest transaction is FAILED/CANCELLED, create a NEW one
+        # This handles the "Try Again" flow
+        
         ticket_type = db.session.get(TicketTypeModel, ticket.ticket_type_id)
-        logger.info(f"initiate_guest_payment: ticket_type={ticket_type}")
-
         if not ticket_type:
-            logger.error(
-                f"initiate_guest_payment: Ticket type not found: {ticket.ticket_type_id}"
-            )
-            return jsonify({"error": "Ticket type not found"}), 400
-
+             return jsonify({"error": "Ticket type not found"}), 400
+             
         total_price = float(ticket_type.price) * ticket.quantity
-        logger.info(
-            f"initiate_guest_payment: Calling mpesa_service with total_price={total_price}"
+        
+        # Create NEW transaction
+        import secrets
+        import time
+        reference = f"GUEST-{ticket.event_id}-{secrets.randbelow(1000000)}-{int(time.time())}"
+        
+        new_transaction = MpesaTransaction(
+            user_id=None,
+            event_id=ticket.event_id,
+            ticket_type_id=ticket.ticket_type_id,
+            ticket_id=ticket.id,
+            quantity=ticket.quantity,
+            amount=total_price,
+            phone_number=phone,
+            reference=reference,
+            status="PENDING",
         )
+        db.session.add(new_transaction)
+        db.session.commit()
+        
+        logger.info(f"initiate_guest_payment: Created NEW transaction {new_transaction.id} for ticket {ticket.id} (Retry)")
 
-        # Use None for guest transactions
         return initiate_mpesa_payment(
             None,
             ticket.event_id,
@@ -698,7 +733,7 @@ def initiate_guest_payment():
             ticket.quantity,
             total_price,
             phone,
-            transaction.id,
+            new_transaction.id,
         )
 
     except Exception as e:

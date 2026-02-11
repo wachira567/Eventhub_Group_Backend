@@ -22,7 +22,14 @@ def stk_push_callback():
         result = data.get('Body', {}).get('stkCallback', {})
         result_code = result.get('ResultCode')
         result_desc = result.get('ResultDesc')
+
         checkout_request_id = result.get('CheckoutRequestID')
+        
+        # Add logging to debug callback
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"M-Pesa Callback Received: {data}")
+        logger.info(f"Callback Result: Code={result_code}, Desc={result_desc}, ID={checkout_request_id}")
         
         transaction = MpesaTransaction.query.filter_by(
             checkout_request_id=checkout_request_id
