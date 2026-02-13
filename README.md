@@ -2,6 +2,9 @@
 
 A Flask-based backend for an event ticketing and management platform built with Python.
 
+### Eventhub frontnd repository
+https://github.com/wachira567/Group6_Eventhub_Frontend.git
+
 ## 🛠 Technologies Used
 
 ### Core Framework
